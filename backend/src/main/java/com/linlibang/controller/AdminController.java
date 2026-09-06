@@ -1,12 +1,12 @@
 package com.linlibang.controller;
 
 import cn.dev33.satoken.annotation.SaCheckRole;
+import cn.dev33.satoken.annotation.SaMode;
 import com.linlibang.service.AdminService;
 import com.linlibang.dto.Result;
 import org.springframework.web.bind.annotation.*;
 
 import javax.annotation.Resource;
-import java.util.Map;
 
 @RestController
 @RequestMapping("/admin")
@@ -15,13 +15,13 @@ public class AdminController {
     @Resource
     private AdminService adminService;
 
-    @SaCheckRole("admin")
+    @SaCheckRole(value = {"admin", "super_admin"}, mode = SaMode.OR)
     @GetMapping("/stats")
     public Result getStats() {
         return adminService.getStats();
     }
 
-    @SaCheckRole("admin")
+    @SaCheckRole(value = {"admin", "super_admin"}, mode = SaMode.OR)
     @GetMapping("/users")
     public Result getUserList(
             @RequestParam(required = false, defaultValue = "1") Integer page,
@@ -29,24 +29,30 @@ public class AdminController {
         return adminService.getUserList(page, size);
     }
 
-    @SaCheckRole("admin")
+    @SaCheckRole(value = {"admin", "super_admin"}, mode = SaMode.OR)
     @PutMapping("/user/{id}/status")
     public Result updateUserStatus(@PathVariable Long id, @RequestParam Integer status) {
         return adminService.updateUserStatus(id, status);
     }
 
-    /** 修改用户权限码 — 管理员操作 */
-    @SaCheckRole("admin")
-    @PutMapping("/user/{id}/permissions")
-    public Result updateUserPermissions(@PathVariable Long id, @RequestBody Map<String, String> body) {
-        String permissions = body.get("permissions");
-        if (permissions == null || permissions.trim().isEmpty()) {
-            return Result.fail("权限码不能为空");
-        }
-        return adminService.updateUserPermissions(id, permissions.trim());
+    /** 角色列表（管理端分配角色用） */
+    @SaCheckRole(value = {"admin", "super_admin"}, mode = SaMode.OR)
+    @GetMapping("/roles")
+    public Result getRoleList() {
+        return adminService.getRoleList();
     }
 
-    @SaCheckRole("admin")
+    /** 为用户分配角色（RBAC：改角色即改权限集） */
+    @SaCheckRole(value = {"admin", "super_admin"}, mode = SaMode.OR)
+    @PutMapping("/user/{id}/role")
+    public Result updateUserRole(@PathVariable Long id, @RequestParam Long roleId) {
+        if (roleId == null) {
+            return Result.fail("角色不能为空");
+        }
+        return adminService.updateUserRole(id, roleId);
+    }
+
+    @SaCheckRole(value = {"admin", "super_admin"}, mode = SaMode.OR)
     @GetMapping("/helps")
     public Result getHelpList(
             @RequestParam(required = false, defaultValue = "1") Integer page,
@@ -55,7 +61,7 @@ public class AdminController {
         return adminService.getHelpList(page, size, status);
     }
 
-    @SaCheckRole("admin")
+    @SaCheckRole(value = {"admin", "super_admin"}, mode = SaMode.OR)
     @DeleteMapping("/help/{id}")
     public Result deleteHelp(@PathVariable Long id) {
         return adminService.deleteHelp(id);

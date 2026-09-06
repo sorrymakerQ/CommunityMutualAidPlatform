@@ -15,10 +15,10 @@ public interface HelpRequestMapper {
      * 插入求助，自动回填ID
      */
     @Insert("INSERT INTO tb_help_request " +
-            "(user_id, category_id, title, description, images, reward, address, lng, lat, " +
-            "status, urgent, view_count, create_time, update_time, is_deleted) " +
-            "VALUES (#{userId}, #{categoryId}, #{title}, #{description}, #{images}, #{reward}, " +
-            "#{address}, #{lng}, #{lat}, #{status}, #{urgent}, #{viewCount}, NOW(), NOW(), 0)")
+            "(user_id, category_id, title, description, images, reward, total_reward, address, lng, lat, " +
+            "status, helper_num, accepted_num, urgent, view_count, create_time, update_time, is_deleted) " +
+            "VALUES (#{userId}, #{categoryId}, #{title}, #{description}, #{images}, #{reward}, #{totalReward}, " +
+            "#{address}, #{lng}, #{lat}, #{status}, #{helperNum}, #{acceptedNum}, #{urgent}, #{viewCount}, NOW(), NOW(), 0)")
     @Options(useGeneratedKeys = true, keyProperty = "id")
     int insert(HelpRequest help);
 
@@ -59,6 +59,99 @@ public interface HelpRequestMapper {
             " WHERE id = #{id}" +
             "</script>")
     int updateById(HelpRequest help);
+
+    /**
+     * 乐观锁更新：仅当 version 与读到的值一致时才更新，同时 version + 1。
+     * 返回影响行数：1 = 成功；0 = 数据已被他人修改（调用方应重试）。
+     * 注意：help 必须来自 selectById 查询结果（version 不能为 null），否则永不匹配。
+     */
+    @Update("<script>" +
+            "UPDATE tb_help_request SET update_time = NOW()" +
+            "<if test='userId != null'>, user_id = #{userId}</if>" +
+            "<if test='categoryId != null'>, category_id = #{categoryId}</if>" +
+            "<if test='title != null'>, title = #{title}</if>" +
+            "<if test='description != null'>, description = #{description}</if>" +
+            "<if test='images != null'>, images = #{images}</if>" +
+            "<if test='reward != null'>, reward = #{reward}</if>" +
+            "<if test='address != null'>, address = #{address}</if>" +
+            "<if test='lng != null'>, lng = #{lng}</if>" +
+            "<if test='lat != null'>, lat = #{lat}</if>" +
+            "<if test='status != null'>, status = #{status}</if>" +
+            "<if test='urgent != null'>, urgent = #{urgent}</if>" +
+            "<if test='viewCount != null'>, view_count = #{viewCount}</if>" +
+            "<if test='isDeleted != null'>, is_deleted = #{isDeleted}</if>" +
+            ", version = version + 1" +
+            " WHERE id = #{id} AND version = #{version}" +
+            "</script>")
+    int updateByIdWithVersion(HelpRequest help);
+
+    /**
+     * 状态机 CAS 更新（乐观锁兜底）：
+     * 仅当状态仍为 expectedStatus 时更新，返回影响行数（0 = 已被并发变更）
+     */
+    @Update("UPDATE tb_help_request SET status = #{newStatus}, update_time = NOW() " +
+            "WHERE id = #{id} AND status = #{expectedStatus} AND is_deleted = 0")
+    int updateStatusIf(@Param("id") Long id,
+                       @Param("expectedStatus") Integer expectedStatus,
+                       @Param("newStatus") Integer newStatus);
+
+    /**
+     * 接单占名额（多人求助的核心原子操作）：
+     * 仅当求助处于招募中(status=1)且有名额(accepted_num < helper_num)时，
+     * accepted_num + 1；若加完即满员(accepted_num >= helper_num)，状态转2(已满员)。
+     * 返回影响行数：1 = 占位成功；0 = 已满员/状态不对（调用方应报"已招满"）。
+     *
+     * ⚠️ MySQL SET 子句从左到右求值：status 的 CASE 里 accepted_num 已是 +1 后的新值，
+     * 故判满条件用 accepted_num >= helper_num（新值语义），而非 accepted_num + 1 >= helper_num
+     * （旧值语义）——写后者会提前一个名额误判满员（3 人求助第 2 人就关招募）。
+     */
+    @Update("UPDATE tb_help_request " +
+            "SET accepted_num = accepted_num + 1, " +
+            "    status = CASE WHEN accepted_num >= helper_num THEN 2 ELSE status END, " +
+            "    version = version + 1, update_time = NOW() " +
+            "WHERE id = #{id} AND status = 1 AND accepted_num < helper_num AND is_deleted = 0")
+    int acceptSlot(@Param("id") Long id);
+
+    /**
+     * 取消/超时释放名额：accepted_num - 1，状态恢复招募中(1)（空出名额可继续招募）。
+     * 返回影响行数：1 = 释放成功；0 = 已无名额可释放（异常态，忽略即可）
+     */
+    @Update("UPDATE tb_help_request " +
+            "SET accepted_num = accepted_num - 1, " +
+            "    status = 1, " +
+            "    version = version + 1, update_time = NOW() " +
+            "WHERE id = #{id} AND accepted_num > 0 AND status IN (1, 2) AND is_deleted = 0")
+    int releaseSlot(@Param("id") Long id);
+
+    /**
+     * 状态机 CAS 更新（多期望状态版）：仅当状态在 statuses 中时更新
+     */
+    @Update("<script>" +
+            "UPDATE tb_help_request SET status = #{newStatus}, update_time = NOW() " +
+            "WHERE id = #{id} AND status IN " +
+            "<foreach collection='statuses' item='s' open='(' separator=',' close=')'>#{s}</foreach>" +
+            " AND is_deleted = 0" +
+            "</script>")
+    int updateStatusIfIn(@Param("id") Long id,
+                         @Param("statuses") List<Integer> statuses,
+                         @Param("newStatus") Integer newStatus);
+
+    /**
+     * 待支付超时兜底查询：待支付(status=0)超过 30 分钟的求助
+     * （RocketMQ 延迟消息丢失时的对账兜底，见 HelpReconcileJob）
+     */
+    @Select("SELECT * FROM tb_help_request WHERE status = 0 AND is_deleted = 0 " +
+            "AND create_time < DATE_SUB(NOW(), INTERVAL 30 MINUTE)")
+    List<HelpRequest> selectPendingTimeoutHelps();
+
+    /**
+     * 僵尸求助查询：已满员(status=2)超过 1 天且没有任何活跃/已完成订单的求助
+     * （所有订单被超时取消后遗留的僵尸状态，见 HelpReconcileJob）
+     */
+    @Select("SELECT h.* FROM tb_help_request h WHERE h.status = 2 AND h.is_deleted = 0 " +
+            "AND h.update_time < DATE_SUB(NOW(), INTERVAL 1 DAY) " +
+            "AND NOT EXISTS (SELECT 1 FROM tb_order o WHERE o.help_id = h.id AND o.status IN (1, 2, 3))")
+    List<HelpRequest> selectZombieHelps();
 
     /**
      * 根据ID列表和状态查询求助（附近搜索用）

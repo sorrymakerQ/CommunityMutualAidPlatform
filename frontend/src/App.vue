@@ -72,7 +72,7 @@ function go(path: string) {
     <el-aside width="200px" class="sidebar">
       <div class="logo-area" @click="router.push('/')">
         <span class="logo-icon">🏘️</span>
-        <span class="logo-text">邻里帮</span>
+        <span class="logo-text">社区互助平台</span>
       </div>
 
       <el-menu
@@ -108,7 +108,7 @@ function go(path: string) {
             <template v-else-if="route.path.startsWith('/profile')">个人中心</template>
             <template v-else-if="route.path.startsWith('/help')">求助详情</template>
             <template v-else-if="route.path.startsWith('/admin')">管理后台</template>
-            <template v-else>邻里帮</template>
+            <template v-else>社区互助平台</template>
           </span>
         </div>
         <div class="topbar-right">

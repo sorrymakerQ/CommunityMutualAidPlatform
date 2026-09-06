@@ -5,6 +5,7 @@ import org.springframework.data.redis.connection.RedisGeoCommands;
 import org.springframework.data.redis.core.Cursor;
 import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Component;
 
 import javax.annotation.Resource;
@@ -13,10 +14,21 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * Redis 工具类
- * 封装项目实际使用的 Redis 操作（String / Number / GEO / ZSet range / scan）。
+ * 封装项目实际使用的 Redis 操作（String / Number / GEO / ZSet range / scan / 分布式锁）。
+ *
+ * 本地缓存（Caffeine L1）已统一收敛到 MultiLevelCache 组件，
+ * 本类只负责纯粹的 Redis 读写，不维护任何本地状态。
  */
 @Component
 public class RedisUtils {
+
+    /**
+     * 安全释放锁：仅当锁值与预期一致时才删除（Lua 原子执行）。
+     * 防止"锁超时自动过期后被他人持有，旧持有者误删他人的锁"。
+     */
+    private static final DefaultRedisScript<Long> UNLOCK_SCRIPT = new DefaultRedisScript<>(
+            "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
+            Long.class);
 
     @Resource
     private StringRedisTemplate stringRedisTemplate;
@@ -33,6 +45,16 @@ public class RedisUtils {
         stringRedisTemplate.opsForValue().set(key, value);
     }
 
+    /**
+     * SETNX：键不存在才写入（带过期时间）
+     *
+     * @return true = 首次写入成功（抢到锁）；false = 键已存在（他人持有）
+     */
+    public boolean setIfAbsent(String key, String value, long timeout, TimeUnit unit) {
+        Boolean ok = stringRedisTemplate.opsForValue().setIfAbsent(key, value, timeout, unit);
+        return ok != null && ok;
+    }
+
     /** 获取字符串 */
     public String get(String key) {
         return stringRedisTemplate.opsForValue().get(key);
@@ -46,6 +68,17 @@ public class RedisUtils {
     /** 批量删除键（一次 DEL 命令，避免循环 N 次网络往返） */
     public Long delete(Collection<String> keys) {
         return stringRedisTemplate.delete(keys);
+    }
+
+    // ==================== 分布式锁 ====================
+
+    /**
+     * 安全释放锁：仅当锁的当前值等于 expectedValue 时才删除。
+     * 与 {@link #setIfAbsent} 配对使用：加锁时写入唯一值（如 UUID），
+     * 释放时比对一致才删，防止误删其他持有者的锁。
+     */
+    public void releaseLock(String key, String expectedValue) {
+        stringRedisTemplate.execute(UNLOCK_SCRIPT, Collections.singletonList(key), expectedValue);
     }
 
     // ==================== 数值操作 ====================
@@ -93,7 +126,7 @@ public class RedisUtils {
     /**
      * 检查 member 是否存在于 GEO 集合里。
      * 用 GEOPOS 查坐标：存在返回 Point，不存在返回 null。
-     * 相比 geoDistance(m, m) 的方案，能绕开 Redisson 3.23.4 DistanceConvertor 的 NPE bug。
+     * 相比 geoDistance(m, m) 的方案，能绕开距离换算的边界问题，直接使用 GEOPOS 命令检查存在性。
      */
     public boolean geoExists(String key, String member) {
         List<Point> positions = stringRedisTemplate.opsForGeo().position(key, member);

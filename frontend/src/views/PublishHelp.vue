@@ -7,6 +7,7 @@ import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { publishHelp, getCategoryList } from '@/api/help'
 import { uploadImage } from '@/api/upload'
+import { newIdempotencyKey } from '@/utils/request'
 import type { Category } from '@/types'
 import type { FormInstance, FormRules, UploadRawFile } from 'element-plus'
 
@@ -25,7 +26,8 @@ const formData = reactive({
   address: '',
   lng: 0,
   lat: 0,
-  urgent: 0
+  urgent: 0,
+  helperNum: 1
 })
 
 /** 已上传图片 URL 列表 */
@@ -34,6 +36,8 @@ const imageList = ref<string[]>([])
 const uploading = ref(false)
 /** 表单提交中 */
 const submitting = ref(false)
+/** 幂等键：表单挂载时生成，提交复用——双击/回车/重试发出的是同一个键，后端 SETNX 才能识别重复 */
+const publishIdemKey = ref(newIdempotencyKey())
 /** 定位中 */
 const locating = ref(false)
 
@@ -202,7 +206,7 @@ async function handleSubmit(): Promise<void> {
 
   submitting.value = true
   try {
-    await publishHelp({
+    const res = await publishHelp({
       categoryId: formData.categoryId,
       title: formData.title.trim(),
       description: formData.description.trim(),
@@ -211,12 +215,17 @@ async function handleSubmit(): Promise<void> {
       address: formData.address,
       lng: formData.lng,
       lat: formData.lat,
-      urgent: formData.urgent
-    })
-    ElMessage.success('发布成功！')
-    setTimeout(() => router.push('/'), 800)
+      urgent: formData.urgent,
+      helperNum: formData.helperNum
+    }, publishIdemKey.value)
+    const helpId = (res as any).data?.id
+    ElMessage.success('发布成功！请支付后发布到首页')
+    // 发布成功才换新键：之后的"再发布"是新动作；失败时键不变，重试仍是同一动作
+    publishIdemKey.value = newIdempotencyKey()
+    // 跳转到详情页完成支付（待支付状态）
+    setTimeout(() => router.push(helpId ? `/help/${helpId}` : '/'), 800)
   } catch {
-    /* 拦截器已提示 */
+    /* 拦截器已提示；幂等键不换，用户重试/重发会被后端识别为同一动作 */
   } finally {
     submitting.value = false
   }
@@ -319,6 +328,20 @@ async function handleSubmit(): Promise<void> {
               style="width: 240px;"
             />
             <span class="hint">元 · 打赏能吸引更多邻居帮忙</span>
+          </el-form-item>
+        </div>
+
+        <!-- 需要人数 -->
+        <div class="form-card">
+          <el-form-item label="需要人数">
+            <el-input-number
+              v-model="formData.helperNum"
+              :min="1"
+              :max="20"
+              controls-position="right"
+              style="width: 240px;"
+            />
+            <span class="hint">人 · 需支付总额：¥{{ (formData.reward || 0) * formData.helperNum }}</span>
           </el-form-item>
         </div>
 

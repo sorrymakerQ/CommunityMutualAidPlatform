@@ -1,5 +1,5 @@
 /**
- * 邻里帮 - 路由配置
+ * 社区互助平台 - 路由配置
  * 路由守卫：登录检查 + 角色权限检查
  */
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
@@ -20,7 +20,7 @@ const Messages = () => import('@/views/Messages.vue')
 const Admin = () => import('@/views/Admin.vue')
 
 const routes: RouteRecordRaw[] = [
-  { path: '/',          name: 'home',          component: Home,          meta: { title: '邻里帮 - 首页' } },
+  { path: '/',          name: 'home',          component: Home,          meta: { title: '社区互助平台 - 首页' } },
   { path: '/login',     name: 'login',         component: Login,         meta: { title: '登录' } },
   { path: '/register',  name: 'register',      component: Register,      meta: { title: '注册' } },
   { path: '/publish',   name: 'publish',       component: PublishHelp,   meta: { title: '发布求助', requireAuth: true } },
@@ -49,7 +49,7 @@ router.beforeEach((to, _from, next) => {
   // 权限检查
   if (!checkRoutePermission(to)) {
     const userInfo = localStorage.getItem('userInfo')
-    const role = userInfo ? JSON.parse(userInfo).role : null
+    const roleName = userInfo ? JSON.parse(userInfo).roleName : null
 
     // 未登录 → 跳登录
     if (!localStorage.getItem('token')) {
@@ -58,7 +58,7 @@ router.beforeEach((to, _from, next) => {
     }
 
     // 不是管理员但访问管理员页面 → 跳首页
-    if (to.meta?.requireAdmin && role !== 2) {
+    if (to.meta?.requireAdmin && roleName !== 'admin' && roleName !== 'super_admin') {
       next({ name: 'home' })
       return
     }

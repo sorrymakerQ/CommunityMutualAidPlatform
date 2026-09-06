@@ -16,7 +16,7 @@ const chatOrderId = ref(0)
 
 // ===== 状态文案 =====
 const orderStatusMap: Record<number, string> = { 1: '已接单', 2: '进行中', 3: '已完成', 4: '已取消', 5: '已评价' }
-const helpStatusMap: Record<number, string> = { 1: '待接单', 2: '进行中', 3: '已完成', 4: '已取消' }
+const helpStatusMap: Record<number, string> = { 0: '待支付', 1: '招募中', 2: '已满员', 3: '已完成', 4: '已取消' }
 
 /** 状态数字 → el-tag 的 type（语义色） */
 function statusTagType(s: number): 'warning' | 'primary' | 'success' | 'info' | 'danger' {

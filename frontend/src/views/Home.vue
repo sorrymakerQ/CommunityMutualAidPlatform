@@ -81,7 +81,7 @@ function fmtTime(d: string): string {
 
 /** 状态数字 → 显示文案（保留原版 st1/st2/st3/st4 样式类） */
 function statusText(status: number): string {
-  return status === 1 ? '待接单' : status === 2 ? '进行中' : status === 3 ? '已完成' : '已取消'
+  return status === 0 ? '待支付' : status === 1 ? '招募中' : status === 2 ? '已满员' : status === 3 ? '已完成' : '已取消'
 }
 </script>
 

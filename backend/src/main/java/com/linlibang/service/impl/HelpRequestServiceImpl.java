@@ -2,8 +2,10 @@ package com.linlibang.service.impl;
 
 import cn.hutool.json.JSONUtil;
 import com.linlibang.entity.Order;
+import com.linlibang.entity.PayOrder;
 import com.linlibang.mapper.CategoryMapper;
 import com.linlibang.mapper.HelpRequestMapper;
+import com.linlibang.mapper.PayOrderMapper;
 import com.linlibang.mapper.UserMapper;
 import com.linlibang.dto.HelpRequestDTO;
 import com.linlibang.dto.Result;
@@ -11,12 +13,19 @@ import com.linlibang.entity.Category;
 import com.linlibang.entity.HelpRequest;
 import com.linlibang.entity.User;
 import com.linlibang.service.HelpRequestService;
+import com.linlibang.service.PayService;
+import com.linlibang.cache.MultiLevelCache;
+import com.linlibang.entity.UserCredit;
+import com.linlibang.mapper.UserCreditMapper;
 import com.linlibang.utils.RedisUtils;
+import com.linlibang.config.RocketMQConfig;
 import lombok.extern.slf4j.Slf4j;
-import org.redisson.api.RLock;
-import org.redisson.api.RedissonClient;
+import org.apache.rocketmq.spring.core.RocketMQTemplate;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.geo.GeoResult;
 import org.springframework.data.redis.connection.RedisGeoCommands;
+import org.springframework.messaging.Message;
+import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -28,6 +37,7 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
 
 import javax.annotation.Resource;
+import java.math.BigDecimal;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
@@ -51,6 +61,9 @@ public class HelpRequestServiceImpl implements HelpRequestService {
     private UserMapper userMapper;
 
     @Resource
+    private UserCreditMapper userCreditMapper;
+
+    @Resource
     private CategoryMapper categoryMapper;
 
     @Resource
@@ -60,14 +73,23 @@ public class HelpRequestServiceImpl implements HelpRequestService {
     private RedisUtils redisUtils;
 
     @Resource
-    private RedissonClient redissonClient;
+    private MultiLevelCache multiLevelCache;
+
+    @Resource
+    private PayOrderMapper payOrderMapper;
+
+    @Resource
+    private RocketMQTemplate rocketMQTemplate;
+
+    @Resource
+    private PayService payService;
 
     /** 定位兜底：前端未提供坐标时使用（application.yml 里配置） */
-    @org.springframework.beans.factory.annotation.Value("${linlibang.default-location.lng:116.397428}")
+    @Value("${linlibang.default-location.lng:116.397428}")
     private Double defaultLng;
-    @org.springframework.beans.factory.annotation.Value("${linlibang.default-location.lat:39.90923}")
+    @Value("${linlibang.default-location.lat:39.90923}")
     private Double defaultLat;
-    @org.springframework.beans.factory.annotation.Value("${linlibang.default-location.address:北京市东城区天安门广场}")
+    @Value("${linlibang.default-location.address:北京市东城区天安门广场}")
     private String defaultAddress;
 
     /** 单条求助缓存前缀 */
@@ -80,37 +102,24 @@ public class HelpRequestServiceImpl implements HelpRequestService {
     private static final String HELP_VIEW_KEY = "help:views:";
     /** 缓存过期时间（分钟） */
     private static final long CACHE_TTL = 30;
-    /** 空值缓存 TTL（分钟）——确认 DB 中不存在的 ID，缓存空标记防止穿透 */
-    private static final long NULL_CACHE_TTL = 1;
     /** 默认搜索半径（公里） */
     private static final int DEFAULT_RADIUS = 5;
-    /** 哨兵对象：标记"DB 中确认不存在"，区别于 null（未缓存） */
-    private static final HelpRequest NOT_EXIST = new HelpRequest();
 
     // ==================== 缓存读写 ====================
 
-    /** 从 Redis 取单条求助，返回 null=未缓存，NOT_EXIST=确认不存在 */
+    /** 只读缓存（L1 → L2），未命中返回 null，不回源 */
     private HelpRequest getFromCache(Long id) {
-        String json = redisUtils.get(HELP_ITEM_KEY + id);
-        if (json == null) {
-            return null;
-        }
-        // 空值标记：之前查过 DB 确认不存在
-        if ("{}".equals(json)) {
-            return null;
-        }
-        return JSONUtil.toBean(json, HelpRequest.class);
+        return multiLevelCache.getIfPresent(HELP_ITEM_KEY + id, HelpRequest.class);
     }
 
-    /** 写一条求助到 Redis */
+    /** 写一条求助到缓存（L2 带随机 TTL + 回填 L1） */
     private void setToCache(HelpRequest help) {
-        redisUtils.set(HELP_ITEM_KEY + help.getId(),
-                JSONUtil.toJsonStr(help), CACHE_TTL, TimeUnit.MINUTES);
+        multiLevelCache.put(HELP_ITEM_KEY + help.getId(), help, CACHE_TTL, TimeUnit.MINUTES);
     }
 
-    /** 删一条缓存 */
+    /** 删一条缓存（L2 + L1 同步失效） */
     private void delCache(Long id) {
-        redisUtils.delete(HELP_ITEM_KEY + id);
+        multiLevelCache.evict(HELP_ITEM_KEY + id);
     }
 
     /** 清除所有分页列表缓存（数据变更时调用，使用 SCAN 避免阻塞） */
@@ -145,52 +154,21 @@ public class HelpRequestServiceImpl implements HelpRequestService {
         }
     }
 
-    // ==================== 互斥锁防缓存击穿 ====================
+    // ==================== 缓存查询（三级缓存） ====================
 
     /**
-     * 带互斥锁的缓存查询（防缓存击穿）
+     * 三级缓存查询单条求助：L1 Caffeine → L2 Redis → L3 MySQL
      *
-     * 问题：热点数据过期瞬间，大量请求同时穿透到 MySQL
-     * 解决：只让第一个抢到锁的请求查 DB 并回写缓存，其余请求等锁后走双重检查命中缓存；
-     *      等不到锁则降级返回空，绝不兜底查 DB，避免击穿演变成 DB 雪崩
+     * 三大缓存问题均由 MultiLevelCache 统一处理：
+     *   1. 穿透：DB 确认不存在 → 空值缓存 1 分钟，重复请求不再打库；
+     *   2. 击穿：热点 key 过期瞬间 SETNX 互斥锁，单线程回源，其余自旋等待；
+     *   3. 雪崩：TTL 30 分钟 + 0~20% 随机抖动，打散集中过期。
      */
-    private HelpRequest getWithMutex(Long id) {
-        // ① 先查 Redis
-        HelpRequest cached = getFromCache(id);
-        if (cached != null) return cached;
-
-        // ② 未命中 -> tryLock 最多等 500ms（线程被高效挂起、锁释放即唤醒，看门狗自动续期，无需手设 TTL）
-        RLock mutexLock = redissonClient.getLock("lock:help:" + id);
-        boolean locked;
-        try {
-            locked = mutexLock.tryLock(500, TimeUnit.MILLISECONDS);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            return null;
-        }
-        if (locked) {
-            try {
-                // ③ 抢到锁 -> 再次检查 Redis（双重检查，防止前面的人已经写进去了）
-                cached = getFromCache(id);
-                if (cached != null) return cached;
-
-                // ④ 查数据库并回写缓存
-                HelpRequest fromDb = helpRequestMapper.selectById(id);
-                if (fromDb != null) {
-                    setToCache(fromDb);
-                }
-                return fromDb;
-            } finally {
-                mutexLock.unlock();
-            }
-        }
-
-        // ⑤ 等满 500ms 仍未拿到锁 -> 再查一次缓存（锁持有者可能刚写完），命中则返回
-        cached = getFromCache(id);
-        if (cached != null) return cached;
-
-        // 仍没有则返回空由调用方降级（用户重试即可）；绝不兜底查 DB，避免击穿演变成 DB 雪崩
-        return null;
+    private HelpRequest getHelpWithCache(Long id) {
+        return multiLevelCache.get(
+                HELP_ITEM_KEY + id, HelpRequest.class, CACHE_TTL, TimeUnit.MINUTES,
+                key -> helpRequestMapper.selectById(
+                        Long.valueOf(key.substring(HELP_ITEM_KEY.length()))));
     }
 
     // ==================== 业务方法 ====================
@@ -212,6 +190,11 @@ public class HelpRequestServiceImpl implements HelpRequestService {
                     userId, defaultLng, defaultLat);
         }
 
+        // 服务层兜底：负数酬劳会被当成"支付即加钱"，属高危刷钱漏洞，必须拦截
+        if (dto.getReward() != null && dto.getReward().compareTo(BigDecimal.ZERO) < 0) {
+            return Result.fail("酬劳金额不能为负数");
+        }
+
         HelpRequest help = new HelpRequest();
         help.setUserId(userId);
         help.setCategoryId(dto.getCategoryId());
@@ -225,24 +208,47 @@ public class HelpRequestServiceImpl implements HelpRequestService {
         help.setLng(dto.getLng());
         help.setLat(dto.getLat());
         help.setUrgent(dto.getUrgent() != null ? dto.getUrgent() : 0);
-        help.setStatus(1);
+        // 待支付：支付成功后才上首页（首页/搜索/附近只查 status=1）
+        help.setStatus(0);
+        // 需要人数（默认1人）
+        int helperNum = dto.getHelperNum() != null ? dto.getHelperNum() : 1;
+        help.setHelperNum(helperNum);
+        help.setAcceptedNum(0);  // 初始无人接单
+        // 支付总额 = 每人单价 × 需要人数（发布时计算存储）
+        BigDecimal totalReward = (dto.getReward() != null ? dto.getReward() : BigDecimal.ZERO)
+                .multiply(BigDecimal.valueOf(helperNum));
+        help.setTotalReward(totalReward);
         help.setViewCount(0);
 
-        // 1. 写入 MySQL
+        // 1. 写入 MySQL（待支付状态）
         helpRequestMapper.insert(help);
 
-        // 2. 注册事务回调：提交成功后才写 Redis，回滚则跳过
-        //    避免 MySQL 回滚后 Redis 残留幻影数据
+        // 2. 生成支付订单（待支付，余额支付流程）
+        PayOrder payOrder = new PayOrder();
+        payOrder.setHelpId(help.getId());
+        payOrder.setPublisherId(help.getUserId());
+        payOrder.setAmount(totalReward);
+        payOrderMapper.insert(payOrder);
+
+        // 3. 注册事务回调：提交成功后才写 Redis/投递消息，回滚则跳过
+        //    待支付求助只写详情缓存（发布者可查看确认），
+        //    不写 GEO、不进分页缓存——支付成功后由支付服务上首页
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCommit() {
                 setToCache(help);
-                redisUtils.geoAdd(HELP_GEO_KEY, dto.getLng(), dto.getLat(), help.getId().toString());
-                clearPageCache();
+                // 投递支付超时检查消息（延迟等级16 = 30 分钟，事务已提交，避免回滚后误投）
+                try {
+                    Message<Long> msg = MessageBuilder.withPayload(help.getId()).build();
+                    rocketMQTemplate.syncSend(RocketMQConfig.PAY_TIMEOUT_TOPIC, msg,
+                            3000, RocketMQConfig.DELAY_LEVEL_30M);
+                } catch (Exception e) {
+                    log.warn("支付超时消息投递失败，超时取消暂时失效: helpId={}", help.getId(), e);
+                }
             }
         });
 
-        return Result.ok("求助发布成功", help.getId());
+        return Result.ok("求助发布成功，请尽快支付", help.getId());
     }
 
     @Override
@@ -388,6 +394,10 @@ public class HelpRequestServiceImpl implements HelpRequestService {
         Map<Long, User> userMap = userIds.isEmpty() ? Collections.emptyMap()
                 : userMapper.selectByIds(userIds).stream()
                         .collect(Collectors.toMap(User::getId, u -> u, (a, b) -> a));
+        // 信用分已拆分到 tb_user_credit，批量补查（一次 IN，避免 N+1）
+        Map<Long, Integer> creditMap = userIds.isEmpty() ? Collections.emptyMap()
+                : userCreditMapper.selectByUserIds(userIds).stream()
+                        .collect(Collectors.toMap(UserCredit::getUserId, UserCredit::getCredit, (a, b) -> a));
         Map<Long, Category> categoryMap = categoryIds.isEmpty() ? Collections.emptyMap()
                 : categoryMapper.selectByIds(categoryIds).stream()
                         .collect(Collectors.toMap(Category::getId, c -> c, (a, b) -> a));
@@ -402,11 +412,14 @@ public class HelpRequestServiceImpl implements HelpRequestService {
             item.put("description", help.getDescription());
             item.put("images", help.getImages());
             item.put("reward", help.getReward());
+            item.put("totalReward", help.getTotalReward());
             item.put("address", help.getAddress());
             item.put("lng", help.getLng());
             item.put("lat", help.getLat());
             item.put("urgent", help.getUrgent());
             item.put("status", help.getStatus());
+            item.put("helperNum", help.getHelperNum());
+            item.put("acceptedNum", help.getAcceptedNum());
             item.put("createTime", help.getCreateTime());
             item.put("distance", distanceMap != null
                     ? distanceMap.getOrDefault(help.getId(), 0.0)
@@ -416,7 +429,7 @@ public class HelpRequestServiceImpl implements HelpRequestService {
             if (publisher != null) {
                 item.put("publisherName", publisher.getNickname());
                 item.put("publisherAvatar", publisher.getAvatar());
-                item.put("publisherCredit", publisher.getCredit());
+                item.put("publisherCredit", creditMap.getOrDefault(help.getUserId(), 100));
             }
 
             Category category = categoryMap.get(help.getCategoryId());
@@ -432,8 +445,8 @@ public class HelpRequestServiceImpl implements HelpRequestService {
 
     @Override
     public Result getHelpById(Long helpId) {
-        // ① 带互斥锁查缓存（防击穿：同一时间只有一个线程查 DB）
-        HelpRequest help = getWithMutex(helpId);
+        // ① 查缓存，未命中直接查 DB 并回写（无锁）
+        HelpRequest help = getHelpWithCache(helpId);
         if (help == null) {
             return Result.fail("求助不存在或已删除");
         }
@@ -454,19 +467,24 @@ public class HelpRequestServiceImpl implements HelpRequestService {
                 ? Arrays.asList(help.getImages().split(","))
                 : Collections.emptyList());
         detail.put("reward", help.getReward());
+        detail.put("totalReward", help.getTotalReward());
         detail.put("address", help.getAddress());
         detail.put("lng", help.getLng());
         detail.put("lat", help.getLat());
         detail.put("status", help.getStatus());
         detail.put("urgent", help.getUrgent());
+        detail.put("helperNum", help.getHelperNum());
+        detail.put("acceptedNum", help.getAcceptedNum());
         detail.put("viewCount", newViewCount);
         detail.put("createTime", help.getCreateTime());
 
         User publisher = userMapper.selectById(help.getUserId());
         if (publisher != null) {
+            // 信用分已拆分到 tb_user_credit，单独补查
+            UserCredit publisherCredit = userCreditMapper.selectByUserId(help.getUserId());
             detail.put("publisherName", publisher.getNickname());
             detail.put("publisherAvatar", publisher.getAvatar());
-            detail.put("publisherCredit", publisher.getCredit());
+            detail.put("publisherCredit", publisherCredit != null ? publisherCredit.getCredit() : 100);
             detail.put("publisherHelpCount", publisher.getHelpCount());
         }
 
@@ -492,7 +510,29 @@ public class HelpRequestServiceImpl implements HelpRequestService {
         HelpRequest help = helpRequestMapper.selectById(helpId);
         if (help == null) return Result.fail("求助不存在");
         if (!help.getUserId().equals(userId)) return Result.fail("只能取消自己发布的求助");
-        if (help.getStatus() != 1) return Result.fail("当前状态不允许取消");
+        // 待支付(0)或招募中(1)可取消（已支付招募中的取消需原路退款）
+        if (help.getStatus() != 0 && help.getStatus() != 1) return Result.fail("当前状态不允许取消");
+        int originStatus = help.getStatus();
+
+        // 防白嫖：招募中但已有接单者正在服务（已接单/进行中订单）时禁止取消。
+        // 多人求助只要还有空缺名额 status 保持 1，不校验的话发布者可
+        // 让邻居干完活再取消求助全额退款，接单者的服务无法结算。
+        Long activeOrders = orderMapper.countActiveByHelpId(helpId);
+        if (activeOrders != null && activeOrders > 0) {
+            return Result.fail("已有邻居正在服务中，请先处理相关订单（完成或取消）再取消求助");
+        }
+
+        if (originStatus == 0) {
+            // 未支付：支付订单一并作废（无款可退）
+            payOrderMapper.updateStatusIf(helpId, 0, 2);
+        } else {
+            // 已支付：原路退款（refundOrder 与求助取消同一事务——
+            // 退款失败则抛异常全套回滚，杜绝"求助取消了钱没退"）
+            Result refund = payService.refundOrder(helpId, userId);
+            if (refund == null || !refund.getSuccess()) {
+                throw new IllegalStateException(refund != null ? refund.getMessage() : "退款失败，取消操作已回滚");
+            }
+        }
 
         help.setStatus(4);
         helpRequestMapper.updateById(help);
@@ -502,7 +542,7 @@ public class HelpRequestServiceImpl implements HelpRequestService {
         redisUtils.geoRemove(HELP_GEO_KEY, helpId.toString());
         clearPageCache();
 
-        return Result.ok("求助已取消");
+        return Result.ok(originStatus == 0 ? "求助已取消" : "求助已取消，款项已退回余额");
     }
 
     @Override
@@ -580,7 +620,7 @@ public class HelpRequestServiceImpl implements HelpRequestService {
      * 反向清理（Redis → MySQL）：删除 MySQL 中已不存在或已取消的过期缓存
      *
      * 设计原则：MySQL 是唯一数据源，Redis 是缓存加速层。
-     * 对账任务作为兜底，修复 Canal 断连、afterCommit 丢失等异常场景。
+     * 对账任务作为兜底，修复 afterCommit 删缓存丢失等异常场景。
      */
     @Scheduled(fixedRate = 600000)  // 10 分钟
     public void reconcileCache() {
@@ -618,7 +658,7 @@ public class HelpRequestServiceImpl implements HelpRequestService {
                     cacheFilled++;
                 }
 
-                // GEO 缺失 → 补写（用 GEOPOS 检查存在性，避免 Redisson geoDistance NPE bug）
+                // GEO 缺失 → 补写（用 GEOPOS 检查存在性，避免并发重复写）
                 if (!redisUtils.geoExists(HELP_GEO_KEY, h.getId().toString())
                         && h.getLng() != null && h.getLat() != null) {
                     redisUtils.geoAdd(HELP_GEO_KEY, h.getLng(), h.getLat(), h.getId().toString());

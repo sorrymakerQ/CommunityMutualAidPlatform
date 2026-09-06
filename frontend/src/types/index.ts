@@ -1,5 +1,5 @@
 /**
- * 邻里帮 - 全局 TypeScript 类型定义
+ * 社区互助平台 - 全局 TypeScript 类型定义
  */
 
 // ==================== 用户相关 ====================
@@ -16,9 +16,20 @@ export interface UserInfo {
   lat: number               // 纬度
   credit: number            // 信用分
   helpCount: number         // 帮助次数
+  balance?: number          // 账户余额（元）
   intro: string             // 个人简介
-  role: number              // 1-普通用户 2-管理员
+  roleId?: number           // 角色ID（RBAC，关联 tb_role）
+  roleName?: string         // 角色编码：admin/user/reviewer
   createTime: string
+}
+
+/** 角色信息（RBAC） */
+export interface RoleInfo {
+  id: number
+  code: string              // admin/user/reviewer
+  name: string              // 管理员/普通用户/审核员
+  description?: string
+  status: number
 }
 
 /** 登录请求参数 */
@@ -63,12 +74,15 @@ export interface HelpRequest {
   title: string
   description: string
   images: string[]
-  reward: number            // 酬劳金额（元）
+  reward: number            // 酬劳单价（元/人）
+  totalReward?: number      // 支付总额（单价×需要人数）
   address: string
   lng: number
   lat: number
-  status: number            // 1-待接单 2-进行中 3-已完成 4-已取消
+  status: number            // 0-待支付 1-招募中 2-已满员(进行中) 3-已完成 4-已取消
   urgent: number            // 0-普通 1-紧急
+  helperNum?: number        // 需要人数（多人求助）
+  acceptedNum?: number      // 已接人数
   viewCount: number         // 浏览次数
   publisherName: string     // 发布者昵称
   publisherAvatar: string   // 发布者头像
@@ -91,6 +105,7 @@ export interface PublishHelpParams {
   lng: number
   lat: number
   urgent: number
+  helperNum?: number        // 需要人数（1~20，默认1）
 }
 
 /** 求助列表查询参数 */

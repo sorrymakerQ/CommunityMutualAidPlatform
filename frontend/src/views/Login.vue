@@ -69,7 +69,7 @@ async function handleLogin() {
         <div class="card-left">
           <div class="brand">
             <div class="brand-icon">🏘️</div>
-            <h1>邻里帮</h1>
+            <h1>社区互助平台</h1>
             <p>邻里互助，温暖社区</p>
           </div>
 

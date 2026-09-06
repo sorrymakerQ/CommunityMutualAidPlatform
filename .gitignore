@@ -41,4 +41,8 @@ application-local.yml
 erl_crash.dump
 /logs/
 
+# ====== SQL 备份与测试数据（不提交到仓库） ======
+backup-linlibang.sql
+docs/*.sql
+
 

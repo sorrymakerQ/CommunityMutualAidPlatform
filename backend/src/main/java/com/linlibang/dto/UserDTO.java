@@ -34,12 +34,15 @@ public class UserDTO {
     /** 累计帮助次数 */
     private Integer helpCount;
 
+    /** 账户余额（元） */
+    private java.math.BigDecimal balance;
+
     /** 个人简介 */
     private String intro;
 
-    /** 角色：1-普通用户，2-管理员 */
-    private Integer role;
+    /** 角色ID（关联 tb_role） */
+    private Long roleId;
 
-    /** 权限码列表，逗号分隔 */
-    private String permissions;
+    /** 角色编码（如 admin/user/reviewer，前端判断权限用） */
+    private String roleName;
 }

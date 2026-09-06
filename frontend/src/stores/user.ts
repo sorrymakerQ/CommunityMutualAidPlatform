@@ -16,8 +16,8 @@ export const useUserStore = defineStore('user', () => {
 
   // ========== 计算属性 ==========
 
-  /** 是否为管理员 */
-  const isAdmin = computed(() => userInfo.value?.role === 2)
+  /** 是否为管理员（RBAC：admin 或 super_admin 都可进管理后台） */
+  const isAdmin = computed(() => userInfo.value?.roleName === 'admin' || userInfo.value?.roleName === 'super_admin')
 
   /** 用户昵称 */
   const nickname = computed(() => userInfo.value?.nickname || '未设置昵称')

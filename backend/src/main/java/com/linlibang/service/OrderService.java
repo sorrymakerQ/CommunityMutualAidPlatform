@@ -8,13 +8,30 @@ import com.linlibang.dto.Result;
 public interface OrderService {
 
     /**
-     * 接单
+     * 申请接单（老板审批制）：提交申请，等待发布者确认
      *
      * @param helpId  求助ID
-     * @param helperId 接单者ID
-     * @return 接单结果
+     * @param helperId 申请者ID
+     * @return 申请结果
      */
     Result acceptOrder(Long helpId, Long helperId);
+
+    /**
+     * 发布者：查看求助的申请列表
+     */
+    Result getApplyList(Long helpId, Long publisherId);
+
+    /**
+     * 发布者：同意申请（生成订单 + 占名额，满员自动拒绝剩余申请）
+     *
+     * @param reason 审批理由（可空，会通知给申请人）
+     */
+    Result approveApply(Long applyId, Long publisherId, String reason);
+
+    /**
+     * 发布者：拒绝申请（带理由并通知申请人）
+     */
+    Result rejectApply(Long applyId, Long publisherId, String reason);
 
     /**
      * 取消订单

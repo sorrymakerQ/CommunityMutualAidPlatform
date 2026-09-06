@@ -6,10 +6,12 @@ import cn.dev33.satoken.stp.StpUtil;
 import com.linlibang.dto.HelpRequestDTO;
 import com.linlibang.dto.Result;
 import com.linlibang.service.HelpRequestService;
+import com.linlibang.utils.RedisUtils;
 import org.springframework.web.bind.annotation.*;
 
 import javax.annotation.Resource;
 import javax.validation.Valid;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 求助控制器
@@ -22,15 +24,25 @@ public class HelpRequestController {
     @Resource
     private HelpRequestService helpRequestService;
 
+    @Resource
+    private RedisUtils redisUtils;
+
     /**
      * 发布求助 — 需要 help:publish 权限
-     *
-     * @param dto 求助表单
+     * 幂等：前端写请求带 X-Request-Id（双击/网络重试只成功一次）
      */
     @SaCheckPermission("help:publish")
     @PostMapping("/publish")
-    public Result publishHelp(@Valid @RequestBody HelpRequestDTO dto) {
+    public Result publishHelp(@Valid @RequestBody HelpRequestDTO dto,
+                              @RequestHeader(value = "X-Request-Id", required = false) String requestId) {
         long userId = StpUtil.getLoginIdAsLong();
+        // 幂等键（Redis SETNX，30 分钟窗口）
+        if (requestId != null && !requestId.trim().isEmpty()) {
+            if (!redisUtils.setIfAbsent("idem:publish:" + userId + ":" + requestId.trim(),
+                    "1", 30, TimeUnit.MINUTES)) {
+                return Result.fail("请勿重复提交");
+            }
+        }
         return helpRequestService.publishHelp(dto, userId);
     }
 
@@ -52,7 +64,8 @@ public class HelpRequestController {
             @RequestParam(required = false, defaultValue = "10") Integer size,
             @RequestParam(required = false) Long categoryId,
             @RequestParam(required = false) String keyword) {
-        size = Math.min(size, 50);  // 限制最大每页条数
+        page = Math.max(page, 1);
+        size = Math.max(Math.min(size, 50), 1);  // 限制最大每页条数
         return helpRequestService.getNearbyHelp(lng, lat, radius, page, size, categoryId, keyword);
     }
 
@@ -80,7 +93,8 @@ public class HelpRequestController {
             @RequestParam(required = false) Long categoryId,
             @RequestParam(required = false, defaultValue = "1") Integer page,
             @RequestParam(required = false, defaultValue = "10") Integer size) {
-        size = Math.min(size, 50);  // 限制最大每页条数
+        page = Math.max(page, 1);
+        size = Math.max(Math.min(size, 50), 1);  // 限制最大每页条数
         return helpRequestService.searchHelp(keyword, categoryId, page, size);
     }
 
@@ -107,7 +121,8 @@ public class HelpRequestController {
     public Result getMyHelp(
             @RequestParam(required = false, defaultValue = "1") Integer page,
             @RequestParam(required = false, defaultValue = "10") Integer size) {
-        size = Math.min(size, 50);  // 限制最大每页条数
+        page = Math.max(page, 1);
+        size = Math.max(Math.min(size, 50), 1);  // 限制最大每页条数
         long userId = StpUtil.getLoginIdAsLong();
         return helpRequestService.getMyHelp(userId, page, size);
     }

@@ -12,16 +12,24 @@ ALTER TABLE tb_user AUTO_INCREMENT = 117;
 
 -- ==========================================
 -- 1. 测试用户 - 8人 (id=101~108)
+--    注意：信用分已拆分到 tb_user_credit（见下方第 5 节）
 -- ==========================================
-INSERT INTO `tb_user` (`id`, `phone`, `password`, `nickname`, `avatar`, `gender`, `community`, `lng`, `lat`, `credit`, `help_count`, `intro`, `role`, `status`) VALUES
-(109, '13800000001', '$2a$10$Pzba09X/CciE/sFDkfFbo.Bb958m1s5Cc9dlvvM4079Rkqk109Bxu', '张大爷',   'https://api.dicebear.com/7.x/avataaars/svg?seed=zhang', 1, '阳光花园小区', 116.397128, 39.916527, 98,  12, '退休工人，热心肠，啥都能帮',         1, 1),
-(110, '13800000002', '$2a$10$/Rj0v11LYCCz9liyoJOAbO2YusIIpyK52TauiTNCUpoIbGSUKR4YK', '小李子',   'https://api.dicebear.com/7.x/avataaars/svg?seed=li',    2, '阳光花园小区', 116.397428, 39.916127, 100, 5,  '大学生，课余时间帮邻居跑腿',         1, 1),
-(111, '13800000003', '$2a$10$QWzHjmqO2dMyeUk3X4r2iebyypMPwabEe4XyMbdxddbzSmIkCoo6m', '王大妈',   'https://api.dicebear.com/7.x/avataaars/svg?seed=wang',   2, '翠竹苑小区',   116.398128, 39.917527, 95,  20, '社区志愿者，擅长家政保洁',           1, 1),
-(112, '13800000004', '$2a$10$brBHl3eWZOOk2bCy6jkr6OCdeAJc7mJEUYYC72zYT8j8LKL24gf3.', '赵师傅',   'https://api.dicebear.com/7.x/avataaars/svg?seed=zhao',   1, '翠竹苑小区',   116.398528, 39.917127, 100, 35, '专业维修工，家电水管都能修',         1, 1),
-(113, '13800000005', '$2a$10$ZbWaSW4h5Y39NnVlP8I1tOAUGVbp/dHbvMwa97.IHFYWj5FUq.H76', '小陈同学', 'https://api.dicebear.com/7.x/avataaars/svg?seed=chen',   1, '阳光花园小区', 116.396828, 39.916827, 100, 3,  '计算机专业在读，修电脑找我',         1, 1),
-(114, '13800000006', '$2a$10$tdfHHgRQA1DEZ9oW51G9LuEBns5NGhN9KlMPV29TSoxrA2iZjS9ZK', '刘阿姨',   'https://api.dicebear.com/7.x/avataaars/svg?seed=liu',    2, '金色家园小区', 116.399128, 39.915527, 100, 8,  '全职妈妈，擅长照顾老人小孩',         1, 1),
-(115, '13800000007', '$2a$10$BFrwz5vwDNXFdlbOg9Wr3.ArVeM0gSx8KX2vyTDdED3/Dpul.7spq', '周跑腿',   'https://api.dicebear.com/7.x/avataaars/svg?seed=zhou',   1, '金色家园小区', 116.399528, 39.915127, 88,  15, '专业跑腿，风雨无阻',                 1, 1),
-(116, '13800000008', '$2a$10$CxeK2W6KRQj7LqCwNK24Y.7rMuosIcizHJLX3R5c1Lepu9Pw0ReU.', '管理员阿明','https://api.dicebear.com/7.x/avataaars/svg?seed=admin', 1, '阳光花园小区', 116.397128, 39.916527, 100, 0,  '平台管理员',                         2, 1);
+INSERT INTO `tb_user` (`id`, `phone`, `password`, `nickname`, `avatar`, `gender`, `community`, `lng`, `lat`, `help_count`, `intro`, `role_id`, `status`) VALUES
+(109, '13800000001', '$2a$10$Pzba09X/CciE/sFDkfFbo.Bb958m1s5Cc9dlvvM4079Rkqk109Bxu', '张大爷',   'https://api.dicebear.com/7.x/avataaars/svg?seed=zhang', 1, '阳光花园小区', 116.397128, 39.916527, 12, '退休工人，热心肠，啥都能帮',         2, 1),
+(110, '13800000002', '$2a$10$/Rj0v11LYCCz9liyoJOAbO2YusIIpyK52TauiTNCUpoIbGSUKR4YK', '小李子',   'https://api.dicebear.com/7.x/avataaars/svg?seed=li',    2, '阳光花园小区', 116.397428, 39.916127, 5,  '大学生，课余时间帮邻居跑腿',         2, 1),
+(111, '13800000003', '$2a$10$QWzHjmqO2dMyeUk3X4r2iebyypMPwabEe4XyMbdxddbzSmIkCoo6m', '王大妈',   'https://api.dicebear.com/7.x/avataaars/svg?seed=wang',   2, '翠竹苑小区',   116.398128, 39.917527, 20, '社区志愿者，擅长家政保洁',           2, 1),
+(112, '13800000004', '$2a$10$brBHl3eWZOOk2bCy6jkr6OCdeAJc7mJEUYYC72zYT8j8LKL24gf3.', '赵师傅',   'https://api.dicebear.com/7.x/avataaars/svg?seed=zhao',   1, '翠竹苑小区',   116.398528, 39.917127, 35, '专业维修工，家电水管都能修',         2, 1),
+(113, '13800000005', '$2a$10$ZbWaSW4h5Y39NnVlP8I1tOAUGVbp/dHbvMwa97.IHFYWj5FUq.H76', '小陈同学', 'https://api.dicebear.com/7.x/avataaars/svg?seed=chen',   1, '阳光花园小区', 116.396828, 39.916827, 3,  '计算机专业在读，修电脑找我',         2, 1),
+(114, '13800000006', '$2a$10$tdfHHgRQA1DEZ9oW51G9LuEBns5NGhN9KlMPV29TSoxrA2iZjS9ZK', '刘阿姨',   'https://api.dicebear.com/7.x/avataaars/svg?seed=liu',    2, '金色家园小区', 116.399128, 39.915527, 8,  '全职妈妈，擅长照顾老人小孩',         2, 1),
+(115, '13800000007', '$2a$10$BFrwz5vwDNXFdlbOg9Wr3.ArVeM0gSx8KX2vyTDdED3/Dpul.7spq', '周跑腿',   'https://api.dicebear.com/7.x/avataaars/svg?seed=zhou',   1, '金色家园小区', 116.399528, 39.915127, 15, '专业跑腿，风雨无阻',                 2, 1),
+(116, '13800000008', '$2a$10$CxeK2W6KRQj7LqCwNK24Y.7rMuosIcizHJLX3R5c1Lepu9Pw0ReU.', '管理员阿明','https://api.dicebear.com/7.x/avataaars/svg?seed=admin', 1, '阳光花园小区', 116.397128, 39.916527, 0,  '平台管理员',                         1, 1);
+
+-- ==========================================
+-- 2.1 超级管理员（系统内置账号：不可禁用/删除，拥有全部权限）
+-- 账号 super / 密码 123456
+-- ==========================================
+INSERT INTO `tb_user` (`phone`, `password`, `nickname`, `avatar`, `gender`, `community`, `help_count`, `intro`, `role_id`, `status`, `is_builtin`) VALUES
+('super', '$2a$10$LhunkeJYTLwzqaep.dxzbOMlvG8wrDUU1ctBomo2on6zq4/rv3RXC', '超级管理员', 'https://api.dicebear.com/7.x/avataaars/svg?seed=super', 0, '平台总部', 0, '系统超级管理员，拥有全部权限', 4, 1, 1);
 
 -- ==========================================
 -- 2. 求助信息 - 15条 (id=301~315)
@@ -58,5 +66,20 @@ INSERT INTO `tb_order` (`id`, `help_id`, `publisher_id`, `helper_id`, `status`, 
 (409, 313, 115, 113, 4, '冰箱太大了两个人也搬不动，放弃了', '2026-06-12 08:00:00', NULL, NULL, NULL, NULL, NULL),
 (410, 314, 110, 112, 4, '梯子被楼上装修的借走了还没还', '2026-06-10 08:00:00', NULL, NULL, NULL, NULL, NULL),
 (411, 315, 115, 112, 4, '拆开看了是电源线被老鼠咬断了，已经自己接好', '2026-06-18 13:00:00', NULL, NULL, NULL, NULL, NULL);
+
+-- ==========================================
+-- 4. 回填：支付总额（单价×人数）与用户余额
+-- ==========================================
+UPDATE tb_help_request SET total_reward = reward * helper_num WHERE total_reward = 0;
+UPDATE tb_user SET balance = 500.00 WHERE balance = 0 AND is_builtin = 0;
+UPDATE tb_user SET balance = 1000.00 WHERE phone = 'super';
+
+-- ==========================================
+-- 5. 信用分（已从 tb_user 垂直拆分到 tb_user_credit，一对一）
+-- ==========================================
+INSERT INTO `tb_user_credit` (`user_id`, `credit`) VALUES
+(109, 98), (110, 100), (111, 95), (112, 100), (113, 100),
+(114, 100), (115, 88), (116, 100),
+((SELECT id FROM tb_user WHERE phone = 'super'), 100);
 
 

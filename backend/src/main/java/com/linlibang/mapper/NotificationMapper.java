@@ -60,8 +60,12 @@ public interface NotificationMapper {
     int updateIsRead(@Param("id") Long id, @Param("isRead") Integer isRead);
 
     /**
-     * 根据关联ID和类型查通知（用于幂等去重）
+     * 根据接收者 + 关联ID + 类型查通知（用于幂等去重）。
+     * 唯一键 uk_user_related_type(user_id, related_id, type)：同一订单/求助可分别通知双方，
+     * 避免此前 (related_id, type) 唯一键导致"一人收到后另一方被误判重复而漏发"。
      */
-    @Select("SELECT * FROM tb_notification WHERE related_id = #{relatedId} AND type = #{type} LIMIT 1")
-    Notification selectByRelatedIdAndType(@Param("relatedId") Long relatedId, @Param("type") Integer type);
+    @Select("SELECT * FROM tb_notification WHERE user_id = #{userId} AND related_id = #{relatedId} AND type = #{type} LIMIT 1")
+    Notification selectByUserIdRelatedIdAndType(@Param("userId") Long userId,
+                                                @Param("relatedId") Long relatedId,
+                                                @Param("type") Integer type);
 }

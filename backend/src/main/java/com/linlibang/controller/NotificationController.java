@@ -21,6 +21,8 @@ public class NotificationController {
     public Result getNotifications(
             @RequestParam(required = false, defaultValue = "1") Integer page,
             @RequestParam(required = false, defaultValue = "10") Integer size) {
+        page = Math.max(page, 1);
+        size = Math.max(Math.min(size, 50), 1);
         return notificationService.getNotifications(StpUtil.getLoginIdAsLong(), page, size);
     }
 

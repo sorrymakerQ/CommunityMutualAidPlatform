@@ -20,7 +20,7 @@ const activeTab = ref<'publish' | 'help'>('publish')
 const orders = ref<any[]>([])
 const loading = ref(false)
 
-const helpStatusMap: Record<number, string> = { 1: '待接单', 2: '进行中', 3: '已完成', 4: '已取消' }
+const helpStatusMap: Record<number, string> = { 1: '招募中', 2: '已满员', 3: '已完成', 4: '已取消' }
 const orderStatusMap: Record<number, string> = { 1: '已接单', 2: '进行中', 3: '已完成', 4: '已取消', 5: '已评价' }
 
 /** 状态数字 → el-tag type */
@@ -144,6 +144,10 @@ function goDetail(row: any) {
             <span class="ss-label">我的接单</span>
           </div>
           <div class="side-stat">
+            <span class="ss-num green">{{ userInfo.balance ?? 0 }}</span>
+            <span class="ss-label">余额(元)</span>
+          </div>
+          <div class="side-stat">
             <span class="ss-num green">{{ userInfo.credit || 0 }}</span>
             <span class="ss-label">信用分</span>
           </div>
@@ -182,7 +186,15 @@ function goDetail(row: any) {
             @row-click="goDetail"
           >
             <el-table-column prop="id" label="ID" width="70" class-name="col-id" />
-            <el-table-column prop="title" label="标题" show-overflow-tooltip min-width="220" />
+            <el-table-column prop="title" label="标题" show-overflow-tooltip min-width="200" />
+            <el-table-column label="招募" width="110">
+              <template #default="{ row }">
+                <span v-if="row.helperNum > 1" class="recruit-text">
+                  {{ row.acceptedNum || 0 }}/{{ row.helperNum }} 人
+                </span>
+                <span v-else class="dim">-</span>
+              </template>
+            </el-table-column>
             <el-table-column label="状态" width="100">
               <template #default="{ row }">
                 <el-tag :type="statusTagType(row.status)" size="small" effect="light">
@@ -203,36 +215,38 @@ function goDetail(row: any) {
             </el-table-column>
           </el-table>
 
-          <!-- 我接的单（订单表） -->
-          <el-table
-            v-else-if="activeTab === 'help' && orders.length"
-            :data="orders"
-            :header-cell-style="{ background: '#f6f7f8', color: '#909399', fontSize: '12px', fontWeight: '600' }"
-            row-key="id"
-            @row-click="goDetail"
-          >
-            <el-table-column prop="id" label="ID" width="70" class-name="col-id" />
-            <el-table-column prop="helpTitle" label="求助标题" show-overflow-tooltip min-width="180" />
-            <el-table-column prop="otherName" label="对方" width="100" show-overflow-tooltip />
-            <el-table-column label="状态" width="100">
-              <template #default="{ row }">
-                <el-tag :type="statusTagType(row.status)" size="small" effect="light">
-                  {{ orderStatusMap[row.status] }}
+          <!-- 我接的单（卡片列表） -->
+          <div v-else-if="activeTab === 'help' && orders.length" class="order-cards">
+            <div
+              v-for="order in orders"
+              :key="order.id"
+              class="order-card"
+              @click="goDetail(order)"
+            >
+              <img
+                :src="order.otherAvatar || defaultAvatar(order.otherName)"
+                class="order-avatar"
+                alt=""
+                @error="($event.target as HTMLImageElement).src = defaultAvatar(order.otherName)"
+              />
+              <div class="order-main">
+                <div class="order-title">{{ order.helpTitle || `求助 #${order.helpId}` }}</div>
+                <div class="order-sub">
+                  <span class="order-publisher">来自 {{ order.otherName || '邻居' }}</span>
+                  <span class="order-time">接单于 {{ fmtTime(order.acceptTime) }}</span>
+                </div>
+              </div>
+              <div class="order-side">
+                <div class="order-reward">
+                  <span v-if="order.reward > 0">¥{{ order.reward }}</span>
+                  <span v-else class="dim">公益单</span>
+                </div>
+                <el-tag :type="statusTagType(order.status)" size="small" effect="light">
+                  {{ orderStatusMap[order.status] }}
                 </el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column label="酬劳" width="90">
-              <template #default="{ row }">
-                <span v-if="row.reward > 0" class="reward-text">¥{{ row.reward }}</span>
-                <span v-else class="dim">-</span>
-              </template>
-            </el-table-column>
-            <el-table-column label="时间" width="110">
-              <template #default="{ row }">
-                <span class="dim">{{ row.createTime?.slice(0, 10) }}</span>
-              </template>
-            </el-table-column>
-          </el-table>
+              </div>
+            </div>
+          </div>
 
           <!-- 空态 -->
           <el-empty
@@ -457,4 +471,83 @@ function goDetail(row: any) {
 
 .reward-text { color: #e65100; font-weight: 500; }
 .dim { color: #c0c4cc; font-size: 12px; }
+
+/* ==================== 我接的单：卡片列表 ==================== */
+.order-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.order-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: #fff;
+  border-radius: 10px;
+  padding: 16px 18px;
+  cursor: pointer;
+  border: 1px solid #f0f1f2;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+  transition: box-shadow 0.2s, transform 0.2s, border-color 0.2s;
+}
+.order-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
+  border-color: #d9f2e5;
+}
+
+.order-avatar {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #f6f7f8;
+  flex-shrink: 0;
+}
+
+.order-main { flex: 1; min-width: 0; }
+
+.order-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #18191c;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 5px;
+}
+
+.order-sub {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+  color: #9499a0;
+}
+
+.order-publisher { color: #5e6d66; }
+.order-time::before { content: '· '; color: #d5d9dc; }
+
+.order-side {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-shrink: 0;
+}
+
+.order-reward {
+  color: #e65100;
+  font-weight: 600;
+  font-size: 15px;
+  min-width: 56px;
+  text-align: right;
+}
+
+/* 我发布的表格：招募进度列 */
+.recruit-text {
+  color: #00a35a;
+  font-weight: 500;
+  font-size: 13px;
+}
 </style>

@@ -2,7 +2,7 @@
  * 用户相关 API 接口
  */
 import request from '@/utils/request'
-import type { LoginParams, RegisterParams, AuthResponse, UserInfo, UpdateUserParams } from '@/types'
+import type { LoginParams, RegisterParams, AuthResponse, UserInfo, UpdateUserParams, RoleInfo } from '@/types'
 
 /**
  * 用户登录
@@ -47,8 +47,15 @@ export function toggleUserStatus(userId: number, status: number): Promise<{ succ
 }
 
 /**
- * 管理员 - 更新用户权限码
+ * 管理员 - 为用户分配角色（RBAC）
  */
-export function updateUserPermissions(userId: number, permissions: string): Promise<{ success: boolean }> {
-  return request.put(`/admin/user/${userId}/permissions`, { permissions })
+export function updateUserRole(userId: number, roleId: number): Promise<{ success: boolean }> {
+  return request.put(`/admin/user/${userId}/role?roleId=${roleId}`)
+}
+
+/**
+ * 管理员 - 角色列表（分配角色下拉用）
+ */
+export function getRoleList(): Promise<{ success: boolean; data: RoleInfo[] }> {
+  return request.get('/admin/roles')
 }

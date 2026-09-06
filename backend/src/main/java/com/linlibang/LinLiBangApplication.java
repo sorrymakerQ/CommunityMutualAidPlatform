@@ -24,7 +24,7 @@ public class LinLiBangApplication {
     public static void main(String[] args) {
         SpringApplication.run(LinLiBangApplication.class, args);
         log.info("========================================");
-        log.info("  邻里帮 - 社区互助平台 启动成功！");
+        log.info("  社区互助平台 启动成功！");
         log.info("  邻里互助，温暖社区");
         log.info("========================================");
     }

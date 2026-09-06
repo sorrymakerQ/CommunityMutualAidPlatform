@@ -3,12 +3,13 @@
  * PC 端管理后台
  * el-container 布局 + el-menu 侧边导航 + el-table 数据展示
  */
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { getDashboardStats } from '@/api/order'
-import { getAdminUserList, toggleUserStatus, updateUserPermissions } from '@/api/user'
+import { getAdminUserList, toggleUserStatus, updateUserRole, getRoleList } from '@/api/user'
 import { getAdminHelpList, deleteHelp } from '@/api/help'
+import type { RoleInfo } from '@/types'
 import { useConfirm } from '@/utils/confirm'
 
 const { confirm } = useConfirm()
@@ -66,35 +67,42 @@ async function handleToggleStatus(user: any) {
   } catch { /* 拦截器已提示 */ }
 }
 
-// ==================== 权限管理 ====================
-const PERM_OPTIONS = [
-  { code: 'help:publish', label: '发布求助' },
-  { code: 'order:accept', label: '接单' },
-  { code: 'message:send', label: '发送消息' },
-]
+// ==================== 角色管理（RBAC） ====================
+const roles = ref<RoleInfo[]>([])
+const roleDialogVisible = ref(false)
+const roleDialogUser = ref<any>(null)
+const selectedRoleId = ref<number>(2)
+const roleSaving = ref(false)
 
-const permDialogVisible = ref(false)
-const permDialogUser = ref<any>(null)
-const permCheckList = ref<string[]>([])
-const permSaving = ref(false)
+/** 角色ID → 名称映射（表格展示用） */
+const roleNameMap = computed(() => {
+  const m: Record<number, string> = {}
+  roles.value.forEach(r => { m[r.id] = r.name })
+  return m
+})
 
-function openPermDialog(user: any) {
-  permDialogUser.value = user
-  const current = user.permissions ? user.permissions.split(',').map((s: string) => s.trim()).filter(Boolean) : []
-  permCheckList.value = [...current]
-  permDialogVisible.value = true
+async function loadRoles() {
+  try {
+    const res = await getRoleList()
+    if (res.data) roles.value = res.data
+  } catch { /* 拦截器已提示 */ }
 }
 
-async function savePermissions() {
-  permSaving.value = true
+function openRoleDialog(user: any) {
+  roleDialogUser.value = user
+  selectedRoleId.value = user.roleId || 2
+  roleDialogVisible.value = true
+}
+
+async function saveRole() {
+  roleSaving.value = true
   try {
-    const permissions = permCheckList.value.join(',')
-    await updateUserPermissions(permDialogUser.value.id, permissions)
-    permDialogUser.value.permissions = permissions
-    ElMessage.success('权限已更新')
-    permDialogVisible.value = false
+    await updateUserRole(roleDialogUser.value.id, selectedRoleId.value)
+    roleDialogUser.value.roleId = selectedRoleId.value
+    ElMessage.success('角色已更新')
+    roleDialogVisible.value = false
   } catch { /* 拦截器已提示 */ }
-  finally { permSaving.value = false }
+  finally { roleSaving.value = false }
 }
 
 // ==================== 求助管理 ====================
@@ -145,7 +153,7 @@ function formatDate(dateStr: string) {
   return new Date(dateStr).toLocaleDateString('zh-CN')
 }
 
-const statusHelpMap: Record<number, string> = { 1: '待接单', 2: '进行中', 3: '已完成', 4: '已取消' }
+const statusHelpMap: Record<number, string> = { 0: '待支付', 1: '招募中', 2: '已满员', 3: '已完成', 4: '已取消' }
 
 /** 求助状态 → el-tag type */
 function helpStatusTagType(s: number): 'warning' | 'primary' | 'success' | 'info' {
@@ -162,6 +170,7 @@ onMounted(() => {
     return
   }
   loadStats()
+  loadRoles()
 })
 </script>
 
@@ -172,7 +181,7 @@ onMounted(() => {
     <el-aside width="220px" class="admin-aside">
       <div class="sidebar-logo">
         <span class="logo-icon">🏘️</span>
-        <span class="logo-text">邻里帮管理</span>
+        <span class="logo-text">社区互助平台管理</span>
       </div>
 
       <el-menu
@@ -285,6 +294,13 @@ onMounted(() => {
                 <span class="dim">{{ formatDate(row.createTime) }}</span>
               </template>
             </el-table-column>
+            <el-table-column label="角色" width="110">
+              <template #default="{ row }">
+                <el-tag size="small" :type="row.roleId === 1 ? 'warning' : 'info'">
+                  {{ roleNameMap[row.roleId] || '未知' }}
+                </el-tag>
+              </template>
+            </el-table-column>
             <el-table-column label="状态" width="90">
               <template #default="{ row }">
                 <el-tag :type="row.status !== 0 ? 'success' : 'danger'" size="small">
@@ -294,7 +310,7 @@ onMounted(() => {
             </el-table-column>
             <el-table-column label="操作" width="160" fixed="right">
               <template #default="{ row }">
-                <template v-if="row.role !== 2">
+                <template v-if="row.roleId !== 1">
                   <el-button
                     :type="row.status !== 0 ? 'danger' : 'success'"
                     size="small"
@@ -305,9 +321,9 @@ onMounted(() => {
                   </el-button>
                   <el-button
                     size="small"
-                    @click="openPermDialog(row)"
+                    @click="openRoleDialog(row)"
                   >
-                    权限
+                    角色
                   </el-button>
                 </template>
                 <span v-else class="dim">-</span>
@@ -317,30 +333,29 @@ onMounted(() => {
 
           <el-empty v-else-if="!loading" description="暂无用户数据" />
 
-          <!-- 权限编辑弹窗 -->
+          <!-- 角色分配弹窗（RBAC） -->
           <el-dialog
-            v-model="permDialogVisible"
-            title="编辑用户权限"
+            v-model="roleDialogVisible"
+            title="分配角色"
             width="420px"
             :close-on-click-modal="false"
           >
-            <template v-if="permDialogUser">
+            <template v-if="roleDialogUser">
               <p class="perm-dialog-hint">
-                为 <strong>{{ permDialogUser.nickname }}</strong> 分配功能权限：
+                为 <strong>{{ roleDialogUser.nickname }}</strong> 分配角色：
               </p>
-              <el-checkbox-group v-model="permCheckList" class="perm-checkbox-group">
-                <el-checkbox
-                  v-for="opt in PERM_OPTIONS"
-                  :key="opt.code"
-                  :label="opt.code"
-                >
-                  {{ opt.label }}
-                </el-checkbox>
-              </el-checkbox-group>
+              <el-select v-model="selectedRoleId" placeholder="选择角色" style="width: 100%;">
+                <el-option
+                  v-for="r in roles"
+                  :key="r.id"
+                  :value="r.id"
+                  :label="`${r.name}（${r.description || r.code}）`"
+                />
+              </el-select>
             </template>
             <template #footer>
-              <el-button @click="permDialogVisible = false" :disabled="permSaving">取消</el-button>
-              <el-button type="primary" @click="savePermissions" :loading="permSaving">
+              <el-button @click="roleDialogVisible = false" :disabled="roleSaving">取消</el-button>
+              <el-button type="primary" @click="saveRole" :loading="roleSaving">
                 保存
               </el-button>
             </template>

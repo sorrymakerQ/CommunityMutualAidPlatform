@@ -5,10 +5,31 @@ import request from '@/utils/request'
 import type { Order, OrderListParams, Notification } from '@/types'
 
 /**
- * 接单（接受一个求助）
+ * 接单（老板审批制：提交接单申请，等待发布者确认）
  */
 export function acceptOrder(helpId: number): Promise<{ data: { orderId: number } }> {
   return request.post(`/order/accept/${helpId}`)
+}
+
+/**
+ * 发布者：查看求助的接单申请列表
+ */
+export function getApplyList(helpId: number): Promise<{ data: any }> {
+  return request.get(`/order/apply-list/${helpId}`)
+}
+
+/**
+ * 发布者：同意接单申请（生成订单+占名额），可附审批理由
+ */
+export function approveApply(applyId: number, reason?: string): Promise<{ success: boolean }> {
+  return request.post(`/order/apply/${applyId}/approve`, { reason: reason || '' })
+}
+
+/**
+ * 发布者：拒绝接单申请（带理由通知申请人）
+ */
+export function rejectApply(applyId: number, reason?: string): Promise<{ success: boolean }> {
+  return request.post(`/order/apply/${applyId}/reject`, { reason: reason || '' })
 }
 
 /**

@@ -1,5 +1,5 @@
 # ==========================================
-# 邻里帮 - 社区互助平台 配置文件
+# 社区互助平台 配置文件
 # ==========================================
 
 server:
@@ -33,19 +33,6 @@ spring:
         min-idle: 1
         max-wait: 1000ms
 
-  # RabbitMQ 配置
-  rabbitmq:
-    host: localhost
-    port: 5672
-    username: ${RABBITMQ_USERNAME:guest}
-    password: ${RABBITMQ_PASSWORD:guest}
-    connection-timeout: 3000ms
-    listener:
-      simple:
-        auto-startup: true
-        acknowledge-mode: manual
-        prefetch: 1
-
   # 文件上传大小限制
   servlet:
     multipart:
@@ -56,6 +43,23 @@ spring:
   jackson:
     date-format: yyyy-MM-dd HH:mm:ss
     time-zone: Asia/Shanghai
+
+# RocketMQ 配置（替代 RabbitMQ）
+rocketmq:
+  # NameServer 地址。
+  # ⚠️ 不要写成 ${ROCKETMQ_NAMESERVER:localhost:9876} 形式：
+  # 若环境变量存在但值为空字符串，Spring 会解析出 ""（空串≠null），
+  # RocketMQ 客户端拿到空地址直接报 "connect to null failed"。
+  # 需要覆盖地址时，直接改这里或使用 --rocketmq.name-server= 启动参数。
+  name-server: localhost:9876
+  producer:
+    # 生产组
+    group: linlibang-producer-group
+    # 发送超时 3 秒（与业务"MQ 不可用不影响接单"的容错策略匹配）
+    send-message-timeout: 3000
+    # 生产端重试：同步发送失败自动重试 2 次（共最多 3 次尝试），仍失败抛异常由业务 try-catch 兜底
+    retry-times-when-send-failed: 2
+    retry-times-when-send-async-failed: 2
 
 # MyBatis 配置
 mybatis:
@@ -84,7 +88,7 @@ sa-token:
   # 从请求头读取 Token 的名称为 satoken
   token-name: satoken
 
-# 邻里帮自定义配置
+# 社区互助平台自定义配置
 linlibang:
   # 默认坐标（前端定位失败/未提供坐标时的兜底值：北京·天安门）
   default-location:

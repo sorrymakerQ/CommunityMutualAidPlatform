@@ -14,7 +14,7 @@
     <groupId>com.linlibang</groupId>
     <artifactId>linlibang</artifactId>
     <version>1.0.0</version>
-    <name>邻里帮</name>
+    <name>社区互助平台</name>
     <description>社区互助平台 - 邻里之间互帮互助</description>
 
     <properties>
@@ -61,17 +61,19 @@
             <artifactId>spring-boot-starter-data-redis</artifactId>
         </dependency>
 
-        <!-- Redisson 分布式锁（看门狗自动续期） -->
+        <!-- Caffeine 本地缓存（L1：与 Redis 组成两级缓存，缓存读免网络 IO；2.x 兼容 Java 8） -->
         <dependency>
-            <groupId>org.redisson</groupId>
-            <artifactId>redisson-spring-boot-starter</artifactId>
-            <version>3.23.4</version>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
+            <version>2.9.3</version>
         </dependency>
 
-        <!-- RabbitMQ -->
+        <!-- RocketMQ：通知消息 + 订单超时延迟消息（替代 RabbitMQ）
+             注意：锁方案已改为"内存锁 + 数据库乐观锁兜底"，不再依赖 Redisson -->
         <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-amqp</artifactId>
+            <groupId>org.apache.rocketmq</groupId>
+            <artifactId>rocketmq-spring-boot-starter</artifactId>
+            <version>2.2.3</version>
         </dependency>
 
         <!-- WebSocket -->

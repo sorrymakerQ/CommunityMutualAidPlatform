@@ -22,7 +22,7 @@ public class OrderController {
     private OrderService orderService;
 
     /**
-     * 接单 — 需要 order:accept 权限
+     * 接单（老板审批制）— 提交申请，等待发布者确认
      *
      * @param helpId 求助ID
      */
@@ -31,6 +31,38 @@ public class OrderController {
     public Result acceptOrder(@PathVariable Long helpId) {
         long userId = StpUtil.getLoginIdAsLong();
         return orderService.acceptOrder(helpId, userId);
+    }
+
+    /**
+     * 发布者：查看求助的申请列表
+     */
+    @SaCheckLogin
+    @GetMapping("/apply-list/{helpId}")
+    public Result getApplyList(@PathVariable Long helpId) {
+        long userId = StpUtil.getLoginIdAsLong();
+        return orderService.getApplyList(helpId, userId);
+    }
+
+    /**
+     * 发布者：同意申请（生成订单 + 占名额），可附审批理由
+     */
+    @SaCheckLogin
+    @PostMapping("/apply/{applyId}/approve")
+    public Result approveApply(@PathVariable Long applyId, @RequestBody(required = false) Map<String, String> body) {
+        long userId = StpUtil.getLoginIdAsLong();
+        String reason = body != null ? body.get("reason") : null;
+        return orderService.approveApply(applyId, userId, reason);
+    }
+
+    /**
+     * 发布者：拒绝申请，可附拒绝理由（通知申请人）
+     */
+    @SaCheckLogin
+    @PostMapping("/apply/{applyId}/reject")
+    public Result rejectApply(@PathVariable Long applyId, @RequestBody(required = false) Map<String, String> body) {
+        long userId = StpUtil.getLoginIdAsLong();
+        String reason = body != null ? body.get("reason") : null;
+        return orderService.rejectApply(applyId, userId, reason);
     }
 
     /**
@@ -106,7 +138,8 @@ public class OrderController {
             @RequestParam(required = false, defaultValue = "all") String role,
             @RequestParam(required = false, defaultValue = "1") Integer page,
             @RequestParam(required = false, defaultValue = "10") Integer size) {
-        size = Math.min(size, 50);  // 限制最大每页条数
+        page = Math.max(page, 1);
+        size = Math.max(Math.min(size, 50), 1);  // 限制最大每页条数
         long userId = StpUtil.getLoginIdAsLong();
         return orderService.getMyOrders(userId, role, page, size);
     }

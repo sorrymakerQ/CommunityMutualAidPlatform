@@ -81,7 +81,7 @@ async function handleRegister() {
         <div class="card-left">
           <div class="brand">
             <div class="brand-icon">🏘️</div>
-            <h1>邻里帮</h1>
+            <h1>社区互助平台</h1>
             <p>加入社区，互帮互助</p>
           </div>
           <div class="brand-tips">

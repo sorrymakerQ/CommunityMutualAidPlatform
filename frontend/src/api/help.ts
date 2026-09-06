@@ -28,9 +28,19 @@ export function getHelpDetail(id: number): Promise<{ data: HelpRequest }> {
 
 /**
  * 发布求助
+ * @param idempotencyKey 幂等键（可选）：同一动作重试复用同一键，后端识别重复提交
  */
-export function publishHelp(params: PublishHelpParams): Promise<{ data: { id: number } }> {
-  return request.post('/help/publish', params)
+export function publishHelp(params: PublishHelpParams, idempotencyKey?: string): Promise<{ data: { id: number } }> {
+  return request.post('/help/publish', params, idempotencyKey
+    ? ({ idempotencyKey } as any)
+    : undefined)
+}
+
+/**
+ * 支付求助（余额支付，支付成功后求助才上首页）
+ */
+export function payHelp(id: number): Promise<{ success: boolean; data: number }> {
+  return request.post(`/pay/${id}`)
 }
 
 /**

@@ -37,23 +37,26 @@ public class User {
     /** 纬度 */
     private Double lat;
 
-    /** 信用分 */
-    private Integer credit;
-
     /** 帮助次数 */
     private Integer helpCount;
+
+    /** 账户余额（支付求助总额用，简单余额体系） */
+    private java.math.BigDecimal balance;
 
     /** 个人简介 */
     private String intro;
 
-    /** 角色：1普通用户 2管理员 */
-    private Integer role;
+    /** 角色ID（关联 tb_role，默认2=普通用户） */
+    private Long roleId;
 
     /** 状态：1正常 0禁用 */
     private Integer status;
 
-    /** 权限码列表，逗号分隔（如 help:publish,order:accept,message:send） */
-    private String permissions;
+    /** 系统内置账号（1=内置，不可禁用/删除，如超级管理员） */
+    private Integer isBuiltin;
+
+    /** 乐观锁版本号（每次修改 +1，更新时校验，不一致则重试） */
+    private Integer version;
 
     /** 创建时间 */
     private LocalDateTime createTime;
