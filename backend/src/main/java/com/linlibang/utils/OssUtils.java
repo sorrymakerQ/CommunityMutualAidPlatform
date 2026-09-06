@@ -5,6 +5,7 @@ import com.aliyun.oss.OSS;
 import com.aliyun.oss.OSSClientBuilder;
 import com.aliyun.oss.model.PutObjectRequest;
 import com.linlibang.config.OssConfig;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -20,6 +21,7 @@ import java.time.format.DateTimeFormatter;
  * 阿里云 OSS 工具类
  * 提供文件上传、删除等操作
  */
+@Slf4j
 @Component
 public class OssUtils {
 
@@ -30,14 +32,17 @@ public class OssUtils {
 
     /**
      * 初始化 OSS 客户端
+     * 密钥为空时跳过初始化（本地未配置 OSS 也能正常启动，仅上传不可用）
      */
     @PostConstruct
     public void init() {
-        ossClient = new OSSClientBuilder().build(
-                ossConfig.getEndpoint(),
-                ossConfig.getAccessKeyId(),
-                ossConfig.getAccessKeySecret()
-        );
+        String ak = ossConfig.getAccessKeyId();
+        String sk = ossConfig.getAccessKeySecret();
+        if (ak == null || ak.trim().isEmpty() || sk == null || sk.trim().isEmpty()) {
+            log.warn("OSS AccessKey 未配置，跳过 OSS 客户端初始化（上传功能不可用）。本地开发可启用 local profile 或设置环境变量。");
+            return;
+        }
+        ossClient = new OSSClientBuilder().build(ossConfig.getEndpoint(), ak, sk);
     }
 
     /**
@@ -58,6 +63,9 @@ public class OssUtils {
      * @return 文件的完整访问 URL
      */
     public String uploadFile(MultipartFile file, String folder) throws IOException {
+        if (ossClient == null) {
+            throw new IOException("OSS 未配置 AccessKey（本地开发请启用 local profile 或设置环境变量）");
+        }
         // 1. 生成唯一文件名（防止重名覆盖）
         // 扩展名按 Content-Type 推导，丢弃用户原始扩展名，确保落 OSS 的扩展名恒为真实图片扩展名
         String extension = extensionFromContentType(file.getContentType());
