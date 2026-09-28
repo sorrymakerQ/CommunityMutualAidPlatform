@@ -13,7 +13,6 @@ import com.linlibang.mapper.OrderMapper;
 import com.linlibang.mapper.OrderStatusLogMapper;
 import com.linlibang.mapper.ReviewMapper;
 import com.linlibang.mapper.UserCreditMapper;
-import com.linlibang.utils.OptimisticLockUtils;
 import com.linlibang.utils.RedisUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.rocketmq.spring.annotation.RocketMQMessageListener;
@@ -37,7 +36,7 @@ import java.util.Map;
  *   2. 同步订单冗余评分字段（查询兼容），双方都评后订单置 5（业务终态）；
  *   3. 信用分"评价分"结算（双轨规则：被评 5 星 +2、1-2 星 -5、3-4 星不变）
  *      + 记 tb_credit_log 流水（缺分/漏分可查）；
- *   4. 事务 + 版本号乐观锁：并发双方评价评分不丢，冲突新事务重读重试。
+ *   4. 事务 + 版本号乐观锁：并发双方评价评分不丢，冲突抛异常交由 RocketMQ 重投。
  */
 @Slf4j
 @Component
@@ -94,21 +93,21 @@ public class ReviewConsumer implements RocketMQListener<String> {
         String comment = (String) data.get("comment");
 
         try {
-            Result result = OptimisticLockUtils.retry(() ->
-                    transactionTemplate.execute(status -> doReviewInTx(orderId, userId, score, comment)));
+            Result result = transactionTemplate.execute(status ->
+                    doReviewInTx(orderId, userId, score, comment));
             // Result.fail("已经评价过了") 等业务失败视为消息消费成功（幂等作废），不重投
             if (result == null || !result.getSuccess()) {
                 log.debug("评价消费作废: orderId={}, userId={}, msg={}",
                         orderId, userId, result != null ? result.getMessage() : "null");
             }
         } catch (OptimisticLockConflictException e) {
-            // 重试耗尽仍冲突：抛出让 RocketMQ 重投（再次消费时大概率已成功或幂等作废）
+            // 版本冲突：抛出让 RocketMQ 重投（再次消费时大概率已成功或幂等作废）
             throw e;
         }
     }
 
     /**
-     * 评价落库（每次 attempt = 一个独立事务，保证重读拿到最新快照）
+     * 评价落库（单次事务，冲突抛异常交由 RocketMQ 重投）
      */
     private Result doReviewInTx(Long orderId, Long userId, Integer score, String comment) {
         // 1. 查询订单（新事务 -> 最新快照）

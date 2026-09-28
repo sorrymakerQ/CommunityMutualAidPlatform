@@ -19,7 +19,6 @@ import com.linlibang.entity.User;
 import com.linlibang.entity.UserCredit;
 import com.linlibang.service.OrderService;
 import com.linlibang.exception.OptimisticLockConflictException;
-import com.linlibang.utils.OptimisticLockUtils;
 import com.linlibang.utils.RedisUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.rocketmq.spring.core.RocketMQTemplate;
@@ -77,7 +76,7 @@ public class OrderServiceImpl implements OrderService {
     @Resource
     private PlatformTransactionManager transactionManager;
 
-    /** 编程式事务模板：乐观锁重试时每个 attempt 独立事务 */
+    /** 编程式事务模板：单次独立事务 */
     private TransactionTemplate transactionTemplate;
 
     @PostConstruct
@@ -287,17 +286,15 @@ public class OrderServiceImpl implements OrderService {
 
     @Override
     public Result cancelOrder(Long orderId, Long userId, String reason) {
-        // 版本号乐观锁：每次 attempt = 一个独立事务（REPEATABLE READ 下同事务重读拿旧快照，
-        // 必须新开事务才能读到新 version）；冲突 -> 整个事务回滚 -> 退避后重试，最多 3 次
+        // 版本号乐观锁：单次事务，冲突 -> 整体回滚 -> 直接返回失败（不再退避重试）
         try {
-            return OptimisticLockUtils.retry(() ->
-                    transactionTemplate.execute(status -> doCancelInTx(orderId, userId, reason)));
+            return transactionTemplate.execute(status -> doCancelInTx(orderId, userId, reason));
         } catch (OptimisticLockConflictException e) {
             return Result.fail(e.getMessage());
         }
     }
 
-    /** 取消订单的事务内逻辑（乐观锁冲突抛异常 -> 事务回滚 -> 外层重试） */
+    /** 取消订单的事务内逻辑（乐观锁冲突抛异常 -> 事务回滚） */
     private Result doCancelInTx(Long orderId, Long userId, String reason) {
         // 1. 查询订单（使用 SQL 语句：SELECT * FROM tb_order WHERE id = ?）
         Order order = orderMapper.selectById(orderId);
@@ -368,16 +365,15 @@ public class OrderServiceImpl implements OrderService {
 
     @Override
     public Result finishOrder(Long orderId, Long userId) {
-        // 版本号乐观锁：每次 attempt = 一个独立事务，冲突 -> 回滚 -> 重试
+        // 版本号乐观锁：单次事务，冲突 -> 整体回滚 -> 直接返回失败（不再退避重试）
         try {
-            return OptimisticLockUtils.retry(() ->
-                    transactionTemplate.execute(status -> doFinishInTx(orderId, userId)));
+            return transactionTemplate.execute(status -> doFinishInTx(orderId, userId));
         } catch (OptimisticLockConflictException e) {
             return Result.fail(e.getMessage());
         }
     }
 
-    /** 完成订单的事务内逻辑（乐观锁冲突抛异常 -> 事务回滚 -> 外层重试） */
+    /** 完成订单的事务内逻辑（乐观锁冲突抛异常 -> 事务回滚） */
     private Result doFinishInTx(Long orderId, Long userId) {
         // 1. 查询订单
         Order order = orderMapper.selectById(orderId);
