@@ -15,10 +15,10 @@ public interface HelpRequestMapper {
      * 插入求助，自动回填ID
      */
     @Insert("INSERT INTO tb_help_request " +
-            "(user_id, category_id, title, description, images, reward, total_reward, address, lng, lat, " +
+            "(user_id, category_id, title, description, images, reward, total_reward, address_id, address_detail, " +
             "status, helper_num, accepted_num, urgent, view_count, create_time, update_time, is_deleted) " +
             "VALUES (#{userId}, #{categoryId}, #{title}, #{description}, #{images}, #{reward}, #{totalReward}, " +
-            "#{address}, #{lng}, #{lat}, #{status}, #{helperNum}, #{acceptedNum}, #{urgent}, #{viewCount}, NOW(), NOW(), 0)")
+            "#{addressId}, #{addressDetail}, #{status}, #{helperNum}, #{acceptedNum}, #{urgent}, #{viewCount}, NOW(), NOW(), 0)")
     @Options(useGeneratedKeys = true, keyProperty = "id")
     int insert(HelpRequest help);
 
@@ -49,9 +49,8 @@ public interface HelpRequestMapper {
             "<if test='description != null'>, description = #{description}</if>" +
             "<if test='images != null'>, images = #{images}</if>" +
             "<if test='reward != null'>, reward = #{reward}</if>" +
-            "<if test='address != null'>, address = #{address}</if>" +
-            "<if test='lng != null'>, lng = #{lng}</if>" +
-            "<if test='lat != null'>, lat = #{lat}</if>" +
+            "<if test='addressId != null'>, address_id = #{addressId}</if>" +
+            "<if test='addressDetail != null'>, address_detail = #{addressDetail}</if>" +
             "<if test='status != null'>, status = #{status}</if>" +
             "<if test='urgent != null'>, urgent = #{urgent}</if>" +
             "<if test='viewCount != null'>, view_count = #{viewCount}</if>" +
@@ -73,9 +72,8 @@ public interface HelpRequestMapper {
             "<if test='description != null'>, description = #{description}</if>" +
             "<if test='images != null'>, images = #{images}</if>" +
             "<if test='reward != null'>, reward = #{reward}</if>" +
-            "<if test='address != null'>, address = #{address}</if>" +
-            "<if test='lng != null'>, lng = #{lng}</if>" +
-            "<if test='lat != null'>, lat = #{lat}</if>" +
+            "<if test='addressId != null'>, address_id = #{addressId}</if>" +
+            "<if test='addressDetail != null'>, address_detail = #{addressDetail}</if>" +
             "<if test='status != null'>, status = #{status}</if>" +
             "<if test='urgent != null'>, urgent = #{urgent}</if>" +
             "<if test='viewCount != null'>, view_count = #{viewCount}</if>" +
@@ -86,24 +84,7 @@ public interface HelpRequestMapper {
     int updateByIdWithVersion(HelpRequest help);
 
     /**
-     * 状态机 CAS 更新（乐观锁兜底）：
-     * 仅当状态仍为 expectedStatus 时更新，返回影响行数（0 = 已被并发变更）
-     */
-    @Update("UPDATE tb_help_request SET status = #{newStatus}, update_time = NOW() " +
-            "WHERE id = #{id} AND status = #{expectedStatus} AND is_deleted = 0")
-    int updateStatusIf(@Param("id") Long id,
-                       @Param("expectedStatus") Integer expectedStatus,
-                       @Param("newStatus") Integer newStatus);
 
-    /**
-     * 接单占名额（多人求助的核心原子操作）：
-     * 仅当求助处于招募中(status=1)且有名额(accepted_num < helper_num)时，
-     * accepted_num + 1；若加完即满员(accepted_num >= helper_num)，状态转2(已满员)。
-     * 返回影响行数：1 = 占位成功；0 = 已满员/状态不对（调用方应报"已招满"）。
-     *
-     * ⚠️ MySQL SET 子句从左到右求值：status 的 CASE 里 accepted_num 已是 +1 后的新值，
-     * 故判满条件用 accepted_num >= helper_num（新值语义），而非 accepted_num + 1 >= helper_num
-     * （旧值语义）——写后者会提前一个名额误判满员（3 人求助第 2 人就关招募）。
      */
     @Update("UPDATE tb_help_request " +
             "SET accepted_num = accepted_num + 1, " +
@@ -111,6 +92,13 @@ public interface HelpRequestMapper {
             "    version = version + 1, update_time = NOW() " +
             "WHERE id = #{id} AND status = 1 AND accepted_num < helper_num AND is_deleted = 0")
     int acceptSlot(@Param("id") Long id);
+
+    /**
+     * 支付成功收尾：待支付(0) → 招募中(1)，求助由此上首页（首页/搜索只查 status=1）。
+     */
+    @Update("UPDATE tb_help_request SET status = 1, version = version + 1, update_time = NOW() " +
+            "WHERE id = #{id} AND status = 0 AND is_deleted = 0")
+    int markPaid(@Param("id") Long id);
 
     /**
      * 取消/超时释放名额：accepted_num - 1，状态恢复招募中(1)（空出名额可继续招募）。
@@ -123,9 +111,7 @@ public interface HelpRequestMapper {
             "WHERE id = #{id} AND accepted_num > 0 AND status IN (1, 2) AND is_deleted = 0")
     int releaseSlot(@Param("id") Long id);
 
-    /**
-     * 状态机 CAS 更新（多期望状态版）：仅当状态在 statuses 中时更新
-     */
+
     @Update("<script>" +
             "UPDATE tb_help_request SET status = #{newStatus}, update_time = NOW() " +
             "WHERE id = #{id} AND status IN " +
@@ -137,37 +123,32 @@ public interface HelpRequestMapper {
                          @Param("newStatus") Integer newStatus);
 
     /**
-     * 待支付超时兜底查询：待支付(status=0)超过 30 分钟的求助
-     * （RocketMQ 延迟消息丢失时的对账兜底，见 HelpReconcileJob）
+     * 条件更新状态（CAS 乐观流转）：仅当求助当前状态 = expectStatus 时才改为 newStatus。
+     * 支付超时作废用：0（待支付）→ 4（已取消）。
+     * 返回影响行数：1 = 抢到本次流转；0 = 状态已被别的链路改掉，调用方应放弃处理。
+     *
+     * 注意 WHERE 里的 status = #{expectStatus} 不能省：少了它就会把已支付/已满员的求助
+     * 强行改成「已取消」，调用方那句 `== 0` 判断也将永远不成立（行存在就返回 1）。
+     */
+    @Update("UPDATE tb_help_request SET status = #{newStatus}, version = version + 1, update_time = NOW() " +
+            "WHERE id = #{id} AND status = #{expectStatus} AND is_deleted = 0")
+    int updateStatusIf(@Param("id") Long id,
+                       @Param("expectStatus") Integer expectStatus,
+                       @Param("newStatus") Integer newStatus);
+
+    /**
+     * 待支付超时查询：待支付(status=0)超过 30 分钟的求助。
+     * 原先由 HelpReconcileJob 定时扫描做兜底，该任务已删除，本方法当前无人调用。
      */
     @Select("SELECT * FROM tb_help_request WHERE status = 0 AND is_deleted = 0 " +
             "AND create_time < DATE_SUB(NOW(), INTERVAL 30 MINUTE)")
     List<HelpRequest> selectPendingTimeoutHelps();
 
     /**
-     * 僵尸求助查询：已满员(status=2)超过 1 天且没有任何活跃/已完成订单的求助
-     * （所有订单被超时取消后遗留的僵尸状态，见 HelpReconcileJob）
-     */
-    @Select("SELECT h.* FROM tb_help_request h WHERE h.status = 2 AND h.is_deleted = 0 " +
-            "AND h.update_time < DATE_SUB(NOW(), INTERVAL 1 DAY) " +
-            "AND NOT EXISTS (SELECT 1 FROM tb_order o WHERE o.help_id = h.id AND o.status IN (1, 2, 3))")
-    List<HelpRequest> selectZombieHelps();
-
-    /**
-     * 根据ID列表和状态查询求助（附近搜索用）
-     */
-    @Select("<script>" +
-            "SELECT * FROM tb_help_request WHERE is_deleted = 0 AND status = #{status} " +
-            "AND id IN <foreach collection='ids' item='id' open='(' separator=',' close=')'>#{id}</foreach> " +
-            "ORDER BY urgent DESC, create_time DESC" +
-            "</script>")
-    List<HelpRequest> selectByIdsAndStatus(@Param("ids") List<Long> ids, @Param("status") Integer status);
-
-    /**
      * 分页查询用户的求助列表
      */
-    @Select("SELECT * FROM tb_help_request WHERE user_id = #{userId} AND is_deleted = 0 " +
-            "ORDER BY create_time DESC LIMIT #{offset}, #{size}")
+    @Select("SELECT id,user_id,category_id,title,description,images,reward,total_reward,address_id,address_detail,status,helper_num,accepted_num,urgent,view_count FROM tb_help_request WHERE id>#{offset} AND user_id = #{userId} AND is_deleted = 0 " +
+            "ORDER BY create_time DESC LIMIT  #{size}")
     List<HelpRequest> selectByUserIdPaged(@Param("userId") Long userId,
                                           @Param("offset") int offset,
                                           @Param("size") int size);
@@ -185,7 +166,7 @@ public interface HelpRequestMapper {
             "SELECT * FROM tb_help_request WHERE status = 1 AND is_deleted = 0" +
             "<if test='categoryId != null'> AND category_id = #{categoryId}</if>" +
             "<if test='keyword != null and keyword != \"\"'> " +
-            "AND (title LIKE CONCAT('%',#{keyword},'%') OR description LIKE CONCAT('%',#{keyword},'%'))</if>" +
+            "AND (title in (select title from tb_help_request where title like CONCAT('%', #{keyword}, '%'))) </if>" +
             " ORDER BY urgent DESC, create_time DESC LIMIT #{offset}, #{size}" +
             "</script>")
     List<HelpRequest> search(@Param("keyword") String keyword,
@@ -200,7 +181,7 @@ public interface HelpRequestMapper {
             "SELECT COUNT(*) FROM tb_help_request WHERE status = 1 AND is_deleted = 0" +
             "<if test='categoryId != null'> AND category_id = #{categoryId}</if>" +
             "<if test='keyword != null and keyword != \"\"'> " +
-            "AND (title LIKE CONCAT('%',#{keyword},'%') OR description LIKE CONCAT('%',#{keyword},'%'))</if>" +
+            "AND (title in (select title from tb_help_request where title like CONCAT('%', #{keyword}, '%')))</if>" +
             "</script>")
     Long searchCount(@Param("keyword") String keyword, @Param("categoryId") Long categoryId);
 
@@ -217,9 +198,9 @@ public interface HelpRequestMapper {
     Long selectCountByStatus(@Param("status") Integer status);
 
     @Select("<script>" +
-            "SELECT * FROM tb_help_request WHERE status = 1 AND is_deleted = 0" +
+            "SELECT id,user_id,category_id,title,description,images,reward,total_reward,address_id,address_detail,status,helper_num,accepted_num,urgent,view_count FROM tb_help_request WHERE id >= (select a.id from tb_help_request a order by id asc limit #{offset},1) AND status = 1 AND is_deleted = 0" +
             "<if test='categoryId != null'> AND category_id = #{categoryId}</if>" +
-            " ORDER BY create_time DESC LIMIT #{offset}, #{size}" +
+            "   LIMIT  #{size}" +
             "</script>")
     List<HelpRequest> selectPage(@Param("offset") int offset, @Param("size") int size,
                                  @Param("categoryId") Long categoryId);
@@ -228,9 +209,9 @@ public interface HelpRequestMapper {
      * 管理员分页查询求助（不过滤状态）
      */
     @Select("<script>" +
-            "SELECT * FROM tb_help_request WHERE is_deleted = 0" +
+            "SELECT id,user_id,category_id,title,description,images,reward,total_reward,address_id,address_detail,status,helper_num,accepted_num,urgent,view_count FROM tb_help_request WHERE id > #{offset}  AND is_deleted = 0" +
             "<if test='status != null'> AND status = #{status}</if>" +
-            " ORDER BY create_time DESC LIMIT #{offset}, #{size}" +
+            " ORDER BY create_time DESC id DESC LIMIT #{size}" +
             "</script>")
     List<HelpRequest> selectPageAll(@Param("offset") int offset, @Param("size") int size,
                                     @Param("status") Integer status);

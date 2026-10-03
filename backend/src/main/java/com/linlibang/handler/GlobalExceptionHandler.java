@@ -4,7 +4,6 @@ import cn.dev33.satoken.exception.NotLoginException;
 import cn.dev33.satoken.exception.NotPermissionException;
 import cn.dev33.satoken.exception.NotRoleException;
 import com.linlibang.dto.Result;
-import com.linlibang.exception.OptimisticLockConflictException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DuplicateKeyException;
@@ -100,13 +99,6 @@ public class GlobalExceptionHandler {
         return Result.fail(409, "数据已存在，请勿重复提交");
     }
 
-    /** 乐观锁版本冲突（重试耗尽后仍冲突） */
-    @ExceptionHandler(OptimisticLockConflictException.class)
-    public Result<?> handleOptimisticLockConflict(OptimisticLockConflictException e, HttpServletResponse response) {
-        response.setStatus(HttpServletResponse.SC_CONFLICT);
-        log.warn("乐观锁版本冲突: {}", e.getMessage());
-        return Result.fail(409, "数据已被他人修改，请刷新后重试");
-    }
 
     /** 上传文件过大 */
     @ExceptionHandler(MaxUploadSizeExceededException.class)

@@ -35,14 +35,11 @@ public class HelpRequest {
     /** 支付总额（单价×需要人数，发布时计算） */
     private BigDecimal totalReward;
 
-    /** 地址 */
-    private String address;
+    /** 求助地址ID（关联 tb_address 三级行） */
+    private Long addressId;
 
-    /** 经度 */
-    private Double lng;
-
-    /** 纬度 */
-    private Double lat;
+    /** 详细地址（省市区之后的街道/小区/门牌等，如 科技园南区3栋502） */
+    private String addressDetail;
 
     /** 状态：1招募中 2已满员(进行中) 3已完成 4已取消 */
     private Integer status;

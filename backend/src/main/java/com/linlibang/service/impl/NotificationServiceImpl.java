@@ -1,5 +1,6 @@
 package com.linlibang.service.impl;
 
+import cn.dev33.satoken.stp.StpUtil;
 import com.linlibang.dto.Result;
 import com.linlibang.entity.Notification;
 import com.linlibang.mapper.NotificationMapper;
@@ -18,7 +19,8 @@ public class NotificationServiceImpl implements NotificationService {
     private NotificationMapper notificationMapper;
 
     @Override
-    public Result getNotifications(Long userId, Integer page, Integer size) {
+    public Result getNotifications(Integer page, Integer size) {
+        Long userId = StpUtil.getLoginIdAsLong();
         int pageNum = page != null ? page : 1;
         int pageSize = size != null ? size : 10;
         int offset = (pageNum - 1) * pageSize;
@@ -31,7 +33,8 @@ public class NotificationServiceImpl implements NotificationService {
     }
 
     @Override
-    public Result readNotification(Long id, Long userId) {
+    public Result readNotification(Long id) {
+        Long userId = StpUtil.getLoginIdAsLong();
         Notification notification = notificationMapper.selectById(id);
         if (notification == null) return Result.fail("通知不存在");
         if (!notification.getUserId().equals(userId)) return Result.fail("无权操作此通知");
@@ -40,7 +43,8 @@ public class NotificationServiceImpl implements NotificationService {
     }
 
     @Override
-    public Result getUnreadCount(Long userId) {
+    public Result getUnreadCount() {
+        Long userId = StpUtil.getLoginIdAsLong();
         Long count = notificationMapper.selectUnreadCount(userId);
         Map<String, Object> resultMap = new HashMap<>();
         resultMap.put("count", count);
@@ -48,7 +52,8 @@ public class NotificationServiceImpl implements NotificationService {
     }
 
     @Override
-    public Result readAll(Long userId) {
+    public Result readAll() {
+        Long userId = StpUtil.getLoginIdAsLong();
         List<Notification> unreadList = notificationMapper.selectUnreadByUserId(userId);
         for (Notification notification : unreadList) {
             notificationMapper.updateIsRead(notification.getId(), 1);

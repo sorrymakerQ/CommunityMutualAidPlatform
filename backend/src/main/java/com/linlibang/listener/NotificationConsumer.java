@@ -16,10 +16,6 @@ import java.util.Map;
 
 /**
  * 通知消费者（RocketMQ）
- *
- * 消费通知消息并落库。
- * 幂等：tb_notification 的 uk_related_type(related_id, type) 唯一索引兜底，
- * 重复投递/并发插入时 DuplicateKeyException 视为消费成功，直接确认。
  */
 @Slf4j
 @Component

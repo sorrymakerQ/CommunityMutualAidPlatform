@@ -2,38 +2,44 @@
 import { useRoute, useRouter } from 'vue-router'
 import { computed, ref, watch } from 'vue'
 import { useUserStore } from '@/stores/user'
-import { getChatUnread } from '@/api/chat'
-import { ChatDotRound, HomeFilled, MapLocation, Edit, Tickets, ChatLineSquare, User, Setting } from '@element-plus/icons-vue'
+import { getUnreadCount } from '@/api/order'
+import { Bell, HomeFilled, Edit, Tickets, ChatLineSquare, User, Setting } from '@element-plus/icons-vue'
 
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
 
-const chatUnread = ref(0)
+/** 未读通知数：轮询拉取（聊天已下线，通知不再依赖 WebSocket） */
+const notifyUnread = ref(0)
 
-let chatTimer: ReturnType<typeof setInterval> | null = null
+let notifyTimer: ReturnType<typeof setInterval> | null = null
 
-async function refreshUnread() {
-  if (!userStore.isLoggedIn) { chatUnread.value = 0; return }
-  try { const r = await getChatUnread(); chatUnread.value = r.data || 0 } catch { chatUnread.value = 0 }
+async function refreshNotifyUnread() {
+  if (!userStore.isLoggedIn) { notifyUnread.value = 0; return }
+  try {
+    const r = await getUnreadCount()
+    notifyUnread.value = r.data?.count || 0
+  } catch { notifyUnread.value = 0 }
 }
 
 watch(() => userStore.isLoggedIn, (loggedIn) => {
   if (loggedIn) {
-    refreshUnread()
-    chatTimer = setInterval(refreshUnread, 15000)
+    refreshNotifyUnread()
+    notifyTimer = setInterval(refreshNotifyUnread, 30000)
   } else {
-    chatUnread.value = 0
-    if (chatTimer) { clearInterval(chatTimer); chatTimer = null }
+    notifyUnread.value = 0
+    if (notifyTimer) { clearInterval(notifyTimer); notifyTimer = null }
   }
 }, { immediate: true })
 
-const isFullPage = computed(() => ['login', 'register'].includes(route.name as string))
+/** 这些页面用独立全屏壳子渲染（不带左侧导航/顶栏） */
+const isFullPage = computed(() =>
+  ['login', 'register', 'pay', 'pay-success'].includes(route.name as string)
+)
 
 /** 根据当前路由反查默认展开的菜单 key */
 const activeMenu = computed(() => {
   if (route.path === '/') return '/'
-  if (route.path.startsWith('/map')) return '/map'
   if (route.path.startsWith('/publish')) return '/publish'
   if (route.path.startsWith('/orders')) return '/orders'
   if (route.path.startsWith('/messages')) return '/messages'
@@ -45,7 +51,6 @@ const activeMenu = computed(() => {
 const menuItems = computed(() => {
   const items = [
     { path: '/',            icon: HomeFilled,      label: '首页' },
-    { path: '/map',         icon: MapLocation,      label: '附近地图' },
     { path: '/publish',     icon: Edit,             label: '发布求助' },
     { path: '/orders',      icon: Tickets,          label: '我的订单',  needLogin: true },
     { path: '/messages',    icon: ChatLineSquare,   label: '消息中心',  needLogin: true },
@@ -101,7 +106,6 @@ function go(path: string) {
         <div class="topbar-left">
           <span class="topbar-title">
             <template v-if="route.path === '/'">首页推荐</template>
-            <template v-else-if="route.path.startsWith('/map')">附近地图</template>
             <template v-else-if="route.path.startsWith('/publish')">发布求助</template>
             <template v-else-if="route.path.startsWith('/orders')">我的订单</template>
             <template v-else-if="route.path.startsWith('/messages')">消息中心</template>
@@ -113,8 +117,8 @@ function go(path: string) {
         </div>
         <div class="topbar-right">
           <template v-if="userStore.isLoggedIn">
-            <el-badge :value="chatUnread" :max="99" :hidden="chatUnread === 0" class="chat-badge-wrap">
-              <el-button :icon="ChatDotRound" circle @click="chatUnread = 0; router.push('/messages')" />
+            <el-badge :value="notifyUnread" :max="99" :hidden="notifyUnread === 0" class="msg-badge-wrap">
+              <el-button :icon="Bell" circle @click="notifyUnread = 0; router.push('/messages')" />
             </el-badge>
             <div class="user-area" @click="router.push('/profile')">
               <el-avatar :size="32" :src="userStore.avatar || '/default-avatar.svg'" />
@@ -208,7 +212,7 @@ a { text-decoration: none; color: inherit; cursor: pointer; }
 
 .topbar-right { display: flex; align-items: center; gap: 16px; }
 
-.chat-badge-wrap :deep(.el-badge__content) {
+.msg-badge-wrap :deep(.el-badge__content) {
   font-size: 10px;
 }
 

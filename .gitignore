@@ -45,4 +45,9 @@ erl_crash.dump
 backup-linlibang.sql
 docs/*.sql
 
+# ====== 本地工具 / Agent 工作区（不入库） ======
+.claude/
+tools/_mq/libs/
+tools/**/*.class
+
 

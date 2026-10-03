@@ -6,10 +6,11 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getHelpDetail, cancelHelp, payHelp } from '@/api/help'
-import { acceptOrder, getApplyList, approveApply, rejectApply } from '@/api/order'
+import { acceptOrder } from '@/api/order'
 import { useUserStore } from '@/stores/user'
 import { useConfirm } from '@/utils/confirm'
 import NavBar from '@/components/NavBar.vue'
+import { regionName } from '@/data/regions'
 import type { HelpRequest } from '@/types'
 
 const { confirm } = useConfirm()
@@ -74,12 +75,6 @@ const showTaken = computed(() => {
   return helpInfo.value?.status === 2 && myOrderId.value === null && !isOwner.value
 })
 
-/** 是否显示私信按钮 */
-const showChat = computed(() => {
-  if (!helpInfo.value || !userStore.isLoggedIn) return false
-  return !isOwner.value && helpInfo.value.status < 3
-})
-
 /** 状态文字 */
 const statusText = computed(() => {
   const map: Record<number, string> = { 0: '待支付', 1: '招募中', 2: '已满员', 3: '已完成', 4: '已取消' }
@@ -114,6 +109,7 @@ async function fetchDetail(): Promise<void> {
     const res = await getHelpDetail(helpId.value)
     if (res.data) {
       helpInfo.value = res.data
+      console.log(res.data)
     } else {
       loadError.value = true
     }
@@ -125,7 +121,7 @@ async function fetchDetail(): Promise<void> {
   }
 }
 
-/** 接单（老板审批制：提交申请） */
+/** 接单（即接即录用：直接生成订单并占用名额） */
 async function handleAccept(): Promise<void> {
   if (actionLoading.value) return
 
@@ -141,96 +137,12 @@ async function handleAccept(): Promise<void> {
   actionLoading.value = true
   try {
     await acceptOrder(helpId.value)
-    ElMessage.success('申请已提交，等待发布者确认！')
+    ElMessage.success('接单成功，请尽快与发布者联系！')
     await fetchDetail()
   } catch {
     /* 拦截器已提示 */
   } finally {
     actionLoading.value = false
-  }
-}
-
-// ========== 老板审批（发布者选人） ==========
-
-const applyDialogVisible = ref(false)
-const applyList = ref<any[]>([])
-const applyLoading = ref(false)
-const approvingId = ref<number | null>(null)
-
-/** 发布者且招募中：显示"申请管理"按钮 */
-const showApplyManage = computed(() => {
-  return helpInfo.value?.status === 1 && isOwner.value
-})
-
-async function openApplyDialog(): Promise<void> {
-  applyDialogVisible.value = true
-  await loadApplies()
-}
-
-async function loadApplies(): Promise<void> {
-  applyLoading.value = true
-  try {
-    const res = await getApplyList(helpId.value)
-    if (res.data) {
-      applyList.value = res.data.list || []
-    }
-  } catch {
-    applyList.value = []
-  } finally {
-    applyLoading.value = false
-  }
-}
-
-/** 同意申请：填写理由（可选）→ 生成订单 + 占名额 */
-async function handleApprove(apply: any): Promise<void> {
-  const reason = await promptReason('同意申请', `同意「${apply.helperName}」的申请？可填写留言（选填）`)
-  if (reason === null) return  // 用户取消
-  approvingId.value = apply.id
-  try {
-    await approveApply(apply.id, reason)
-    ElMessage.success(`已同意「${apply.helperName}」的申请`)
-    await loadApplies()
-    await fetchDetail()
-  } catch {
-    /* 拦截器已提示 */
-  } finally {
-    approvingId.value = null
-  }
-}
-
-/** 拒绝申请：填写理由（通知申请人） */
-async function handleReject(apply: any): Promise<void> {
-  const reason = await promptReason('拒绝申请', `拒绝「${apply.helperName}」的申请？建议填写理由（将通知对方）`, true)
-  if (reason === null) return  // 用户取消
-  approvingId.value = apply.id
-  try {
-    await rejectApply(apply.id, reason)
-    ElMessage.success(`已拒绝「${apply.helperName}」的申请`)
-    await loadApplies()
-  } catch {
-    /* 拦截器已提示 */
-  } finally {
-    approvingId.value = null
-  }
-}
-
-/** 弹窗输入理由 */
-async function promptReason(title: string, message: string, required = false): Promise<string | null> {
-  try {
-    const { value } = await ElMessageBox.prompt(message, title, {
-      confirmButtonText: '确定',
-      cancelButtonText: '取消',
-      inputType: 'textarea',
-      inputPlaceholder: required ? '请填写理由（将通知申请人）' : '选填，将通知申请人',
-      inputValidator: (v: string) => {
-        if (required && (!v || !v.trim())) return '请填写理由'
-        return true
-      },
-      inputValue: ''
-    })
-    return (value || '').trim()
-  } catch {
-    return null
   }
 }
 
@@ -276,13 +188,6 @@ function formatTime(dateStr: string): string {
   return `${Math.floor(diff / 86400000)}天前`
 }
 
-/** 格式化距离 */
-function formatDistance(meters: number): string {
-  if (!meters) return '未知'
-  if (meters < 1000) return `${Math.round(meters)}m`
-  return `${(meters / 1000).toFixed(1)}km`
-}
-
 /** 查看订单详情 */
 function goToMyOrder(): void {
   if (myOrderId.value) {
@@ -319,7 +224,7 @@ function goToMyOrder(): void {
             <div class="header-meta">
               <el-tag v-if="helpInfo.urgent === 1" type="danger" effect="dark" size="small">紧急</el-tag>
               <el-tag :type="statusTagType" effect="light" size="small">{{ statusText }}</el-tag>
-              <el-tag v-if="helpInfo.helperNum > 1" type="info" effect="plain" size="small">
+              <el-tag v-if="(helpInfo.helperNum ?? 1) > 1" type="info" effect="plain" size="small">
                 已接 {{ helpInfo.acceptedNum || 0 }}/{{ helpInfo.helperNum }} 人
               </el-tag>
               <span class="time-text">{{ formatTime(helpInfo.createTime) }}</span>
@@ -386,11 +291,7 @@ function goToMyOrder(): void {
               </div>
               <div class="info-item">
                 <span class="info-label">地址</span>
-                <span class="info-value">{{ helpInfo.address }}</span>
-              </div>
-              <div class="info-item">
-                <span class="info-label">距离</span>
-                <span class="info-value distance-value">{{ formatDistance(helpInfo.distance) }}</span>
+                <span class="info-value">{{ regionName(helpInfo.addressId) }}{{ helpInfo.addressDetail ? ` ${helpInfo.addressDetail}` : '' }}</span>
               </div>
               <div class="info-item">
                 <span class="info-label">酬劳</span>
@@ -420,17 +321,6 @@ function goToMyOrder(): void {
             <div v-if="helpInfo.status === 0 && !isOwner" class="btn-hint btn-taken">
               该求助待支付，暂未发布
             </div>
-            <div v-if="showApplyManage" class="btn-action">
-              <el-button
-                  type="primary"
-                  plain
-                  size="large"
-                  class="btn-action"
-                  @click="openApplyDialog"
-              >
-                申请管理（选人）
-              </el-button>
-            </div>
             <div class="btn-action">
               <el-button
                   v-if="showCancelBtn"
@@ -444,18 +334,6 @@ function goToMyOrder(): void {
                 取消求助
               </el-button>
             </div >
-            <div class="btn-action">
-              <el-button
-                  v-if="showChat"
-                  type="primary"
-                  plain
-                  size="large"
-                  class="btn-action"
-                  @click="router.push('/messages?chat=help:' + helpId)"
-              >
-                私信
-              </el-button>
-            </div>
             <div class="btn-action">
               <el-button
                   v-if="showAcceptBtn"
@@ -495,43 +373,6 @@ function goToMyOrder(): void {
     </div>
   </div>
 
-  <!-- 申请管理弹窗（老板审批） -->
-  <el-dialog
-    v-model="applyDialogVisible"
-    :title="`接单申请（已招 ${helpInfo?.acceptedNum ?? 0}/${helpInfo?.helperNum ?? 1} 人）`"
-    width="480px"
-    :close-on-click-modal="false"
-  >
-    <div v-loading="applyLoading" class="apply-list">
-      <el-empty v-if="!applyLoading && applyList.length === 0" description="还没有邻居申请接单" :image-size="60" />
-      <div v-for="apply in applyList" :key="apply.id" class="apply-item">
-        <el-avatar :src="apply.helperAvatar" :size="40">{{ apply.helperName?.[0] }}</el-avatar>
-        <div class="apply-info">
-          <div class="apply-name">
-            {{ apply.helperName }}
-            <span v-if="apply.status === 1" class="apply-tag ok">已录用</span>
-            <span v-else-if="apply.status === 2" class="apply-tag no">已拒绝</span>
-          </div>
-          <div class="apply-meta">信用分 {{ apply.helperCredit ?? 100 }} · 帮助 {{ apply.helperHelpCount ?? 0 }} 次</div>
-          <div v-if="apply.handleReason" class="apply-reason">
-            {{ apply.status === 1 ? '录用留言' : '拒绝理由' }}：{{ apply.handleReason }}
-          </div>
-        </div>
-        <div v-if="apply.status === 0" class="apply-actions">
-          <el-button
-            type="success" size="small"
-            :loading="approvingId === apply.id"
-            @click="handleApprove(apply)"
-          >同意</el-button>
-          <el-button
-            type="danger" size="small" plain
-            :loading="approvingId === apply.id"
-            @click="handleReject(apply)"
-          >拒绝</el-button>
-        </div>
-      </div>
-    </div>
-  </el-dialog>
 </template>
 
 <style scoped>
@@ -762,11 +603,6 @@ function goToMyOrder(): void {
   word-break: break-word;
 }
 
-.distance-value {
-  color: #00B96B;
-  font-weight: 500;
-}
-
 .reward-value {
   color: #FF6B00;
   font-weight: 700;
@@ -810,67 +646,6 @@ function goToMyOrder(): void {
   background: #fff7e6;
   color: #d46b08;
   border: 1px solid #ffd591;
-}
-
-/* ========================================
-   申请管理弹窗样式
-   ======================================== */
-.apply-list {
-  max-height: 420px;
-  overflow-y: auto;
-}
-
-.apply-item {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 4px;
-  border-bottom: 1px solid #f0f0f0;
-}
-
-.apply-item:last-child {
-  border-bottom: none;
-}
-
-.apply-info {
-  flex: 1;
-  min-width: 0;
-}
-
-.apply-name {
-  font-weight: 600;
-  font-size: 15px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.apply-meta {
-  font-size: 12px;
-  color: #999;
-  margin-top: 2px;
-}
-
-.apply-reason {
-  font-size: 12px;
-  color: #e6a23c;
-  margin-top: 2px;
-  line-height: 1.5;
-}
-
-.apply-tag {
-  font-size: 12px;
-  padding: 1px 8px;
-  border-radius: 8px;
-}
-
-.apply-tag.ok { background: #f0f9eb; color: #67c23a; }
-.apply-tag.no { background: #fef0f0; color: #f56c6c; }
-
-.apply-actions {
-  display: flex;
-  gap: 8px;
-  flex-shrink: 0;
 }
 
 /* ========================================

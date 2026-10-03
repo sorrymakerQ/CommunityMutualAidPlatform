@@ -13,7 +13,7 @@ import com.linlibang.mapper.RoleMapper;
 import com.linlibang.mapper.UserCreditMapper;
 import com.linlibang.mapper.UserMapper;
 import com.linlibang.service.AdminService;
-import com.linlibang.utils.RedisUtils;
+import com.linlibang.service.HelpRequestService;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.Resource;
@@ -22,8 +22,19 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+/**
+ * 管理端服务（RBAC：只有「管理员 / 普通用户」两种角色）
+ *
+ * 角色与权限落在数据库里（tb_role / tb_permission / tb_role_permission）：
+ *   admin → help:manage（改任意求助状态/下架/删除）、user:kickout（踢人下线）、user:manage（用户管理）
+ *   user  → help:publish、order:accept、message:send
+ */
 @Service
 public class AdminServiceImpl implements AdminService {
+
+    /** 角色ID常量：与 tb_role 一致 */
+    private static final long ROLE_ADMIN = 1L;
+    private static final long ROLE_USER = 2L;
 
     @Resource
     private UserMapper userMapper;
@@ -41,7 +52,7 @@ public class AdminServiceImpl implements AdminService {
     private OrderMapper orderMapper;
 
     @Resource
-    private RedisUtils redisUtils;
+    private HelpRequestService helpRequestService;
 
     @Override
     public Result getStats() {
@@ -62,7 +73,7 @@ public class AdminServiceImpl implements AdminService {
         // 安全：管理员列表不返回密码哈希（避免通过 Network 面板泄露 BCrypt 值）
         list.forEach(u -> u.setPassword(null));
         Long total = userMapper.selectCount();
-        // 信用分已拆分到 tb_user_credit，批量补查后并入返回（前端字段不变）
+        // 信用分在 tb_user_credit，批量补查后并入返回（前端字段不变）
         List<Long> userIds = list.stream().map(User::getId).collect(Collectors.toList());
         Map<Long, Integer> creditMap = userIds.isEmpty() ? new HashMap<>()
                 : userCreditMapper.selectByUserIds(userIds).stream()
@@ -82,51 +93,64 @@ public class AdminServiceImpl implements AdminService {
     public Result updateUserStatus(Long id, Integer status) {
         User user = userMapper.selectById(id);
         if (user == null) return Result.fail("用户不存在");
-        // 系统内置账号（超级管理员等）不可禁用
         if (user.getIsBuiltin() != null && user.getIsBuiltin() == 1) {
             return Result.fail("系统内置账号不可禁用");
         }
-        if (user.getRoleId() != null && user.getRoleId() == 1L) {
+        if (user.getRoleId() != null && user.getRoleId() == ROLE_ADMIN) {
             return Result.fail("不能禁用管理员账号");
         }
         user.setStatus(status);
         userMapper.updateById(user);
-        if (status == 0) StpUtil.logout(id);
-        return Result.ok(status == 1 ? "用户已启用" : "用户已禁用");
+        // 禁用后立即踢下线（会话里的用户信息随会话一起清除）
+        if (status != null && status == 0) {
+            StpUtil.logout(id);
+        }
+        return Result.ok(status != null && status == 1 ? "用户已启用" : "用户已禁用");
     }
 
+    /**
+     * 修改用户角色（只允许管理员/普通用户两种）
+     *
+     * 角色变了权限立刻变，但 Sa-Token 会话里缓存着角色信息，
+     * 因此改完强制该用户重新登录，保证权限即时生效。
+     */
     @Override
     public Result updateUserRole(Long id, Long roleId) {
-        Role role = roleMapper.selectById(roleId);
-        if (role == null) return Result.fail("角色不存在");
+        if (roleId == null || (roleId != ROLE_ADMIN && roleId != ROLE_USER)) {
+            return Result.fail("角色只能是 1(管理员) 或 2(普通用户)");
+        }
         User user = userMapper.selectById(id);
         if (user == null) return Result.fail("用户不存在");
-
-        // 当前操作者（管理接口由 @SaCheckRole 保证是 admin 或 super_admin）
-        User operator = userMapper.selectById(StpUtil.getLoginIdAsLong());
-        boolean isSuper = operator != null && operator.getRoleId() != null && operator.getRoleId() == 4L;
-
-        // 系统内置账号（含超级管理员本人）的角色不可修改
         if (user.getIsBuiltin() != null && user.getIsBuiltin() == 1) {
             return Result.fail("系统内置账号的角色不可修改");
         }
-        // 超级管理员角色为系统内置，不可通过接口分配给他人
-        if (roleId == 4L) {
-            return Result.fail("超级管理员角色为系统内置，不可分配");
+        if (id.equals(StpUtil.getLoginIdAsLong())) {
+            return Result.fail("不能修改自己的角色");
         }
-        // 涉及管理员角色（设为管理员 或 被操作者当前是管理员）：仅超级管理员可管理
-        if (roleId == 1L || (user.getRoleId() != null && user.getRoleId() == 1L)) {
-            if (!isSuper) {
-                return Result.fail("仅超级管理员可以管理管理员账号");
-            }
+        if (user.getRoleId() != null && user.getRoleId().equals(roleId)) {
+            return Result.ok("角色未变化");
         }
 
+        Role role = roleMapper.selectById(roleId);
         user.setRoleId(roleId);
         userMapper.updateById(user);
-        // 清除 Redis 缓存 + 强制重新登录，使新角色立即生效
-        redisUtils.delete("user:info:" + id);
+        // 强制重新登录：清 token + 清会话，新角色下次登录生效
         StpUtil.logout(id);
-        return Result.ok("角色已更新为「" + role.getName() + "」");
+        return Result.ok("角色已更新为「" + (role != null ? role.getName() : roleId) + "」");
+    }
+
+    /**
+     * 踢用户下线：删除该账号全部 token 与会话（多端一起下线）
+     */
+    @Override
+    public Result kickoutUser(Long id) {
+        User user = userMapper.selectById(id);
+        if (user == null) return Result.fail("用户不存在");
+        if (id.equals(StpUtil.getLoginIdAsLong())) {
+            return Result.fail("不能踢自己下线");
+        }
+        StpUtil.logout(id);
+        return Result.ok("已将用户「" + user.getNickname() + "」踢下线");
     }
 
     @Override
@@ -147,24 +171,22 @@ public class AdminServiceImpl implements AdminService {
         return Result.ok(resultMap);
     }
 
+    /**
+     * 修改任意用户求助的状态（含下架：status=4），需 help:manage 权限
+     */
+    @Override
+    public Result updateHelpStatus(Long id, Integer status) {
+        return helpRequestService.adminUpdateStatus(id, status);
+    }
+
     @Override
     public Result deleteHelp(Long id) {
         HelpRequest help = helpRequestMapper.selectById(id);
         if (help == null) return Result.fail("求助不存在");
         help.setIsDeleted(1);
         helpRequestMapper.updateById(help);
-
-        // 清理 Redis 缓存和 GEO 位置（修复：之前只更新 DB，缓存中仍存在已删除数据）
-        redisUtils.delete("help:item:" + id);
-        redisUtils.geoRemove("help:location", id.toString());
-        // 清除分页缓存
-        java.util.Set<String> pageKeys = redisUtils.scanKeys("help:page:*");
-        if (pageKeys != null) {
-            for (String key : pageKeys) {
-                redisUtils.delete(key);
-            }
-        }
-
+        // 失效详情缓存（L1 Caffeine + L2 Redis）与分页缓存
+        helpRequestService.evictHelpCache(id);
         return Result.ok("求助已删除");
     }
 }

@@ -15,10 +15,10 @@ public interface OrderMapper {
      * 插入订单，自动回填ID
      */
     @Insert("INSERT INTO tb_order " +
-            "(help_id, publisher_id, helper_id, status, seq, cancel_reason, " +
+            "(help_id, publisher_id, helper_id, total_amount, status, seq, cancel_reason, " +
             "accept_time, finish_time, publisher_score, helper_score, publisher_comment, helper_comment, " +
             "create_time, update_time) " +
-            "VALUES (#{helpId}, #{publisherId}, #{helperId}, #{status}, #{seq}, #{cancelReason}, " +
+            "VALUES (#{helpId}, #{publisherId}, #{helperId}, #{totalAmount}, #{status}, #{seq}, #{cancelReason}, " +
             "NOW(), #{finishTime}, #{publisherScore}, #{helperScore}, #{publisherComment}, #{helperComment}, " +
             "NOW(), NOW())")
     @Options(useGeneratedKeys = true, keyProperty = "id")
@@ -133,6 +133,15 @@ public interface OrderMapper {
     Order selectActiveByHelpId(@Param("helpId") Long helpId);
 
     /**
+     * 查询某求助下"指定接单者"的活跃订单（status 1/2）。
+     * 接单即录用后用于幂等前置校验：同一人对同一求助只允许一条活跃订单
+     * （并发场景由唯一键 uk_help_helper_seq 兜底）。
+     */
+    @Select("SELECT * FROM tb_order WHERE help_id = #{helpId} AND helper_id = #{helperId} " +
+            "AND status IN (1, 2) ORDER BY create_time DESC LIMIT 1")
+    Order selectActiveByHelpIdAndHelper(@Param("helpId") Long helpId, @Param("helperId") Long helperId);
+
+    /**
      * 统计某求助下"除指定订单外"的未完成订单数（status 1/2）。
      * 用于多人求助：最后一个未完成订单结束时，求助整体才置为已完成。
      */
@@ -141,8 +150,7 @@ public interface OrderMapper {
     Long countOtherActiveByHelpId(@Param("helpId") Long helpId, @Param("excludeOrderId") Long excludeOrderId);
 
     /**
-     * 统计某求助下所有未完成订单数（status 1/2）。
-     * 用于取消求助前的防白嫖校验：有接单者正在服务时禁止取消求助退款。
+     * 统计某求助下所有未完成订单数（status 1/2）。。
      */
     @Select("SELECT COUNT(*) FROM tb_order WHERE help_id = #{helpId} AND status IN (1, 2)")
     Long countActiveByHelpId(@Param("helpId") Long helpId);

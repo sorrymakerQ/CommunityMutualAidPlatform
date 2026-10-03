@@ -28,14 +28,8 @@ public class User {
     /** 性别：0未知 1男 2女 */
     private Integer gender;
 
-    /** 所在小区/社区 */
-    private String community;
-
-    /** 经度 */
-    private Double lng;
-
-    /** 纬度 */
-    private Double lat;
+    /** 所在地址ID（关联 tb_address 三级行） */
+    private Long addressId;
 
     /** 帮助次数 */
     private Integer helpCount;

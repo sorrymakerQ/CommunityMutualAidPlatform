@@ -2,6 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { getHelpList, getCategoryList } from '@/api/help'
+import { regionName } from '@/data/regions'
 import type { HelpRequest, Category } from '@/types'
 
 const router = useRouter()
@@ -33,10 +34,11 @@ async function loadData() {
     const params: Record<string, unknown> = { page: page.value, size: pageSize.value }
     if (activeCategoryId.value) params.categoryId = activeCategoryId.value
     if (keyword.value) params.keyword = keyword.value
-    const res = await getHelpList(params as any)
+    const res = await getHelpList(params)
     if (res.data) {
       helpList.value = res.data.list || []
       total.value = res.data.total || 0
+      console.log(helpList.value)
     }
   } catch {
     /* 拦截器已提示 */
@@ -140,7 +142,7 @@ function statusText(status: number): string {
             <h3 class="card-title" :title="h.title">{{ h.title }}</h3>
             <p class="card-desc">{{ h.description?.slice(0, 80) }}{{ (h.description?.length ?? 0) > 80 ? '...' : '' }}</p>
             <div class="card-meta">
-              <span class="meta-loc">📍 {{ h.address }}</span>
+              <span class="meta-loc">📍 {{ regionName(h.addressId) }}</span>
               <span class="meta-reward" v-if="h.reward > 0">¥{{ h.reward }}</span>
             </div>
             <div class="card-footer">

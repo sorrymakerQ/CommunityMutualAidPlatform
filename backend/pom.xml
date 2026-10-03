@@ -28,12 +28,20 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
+        <dependency>
+            <groupId>com.alipay.sdk</groupId>
+            <artifactId>alipay-sdk-java</artifactId>
+            <version>4.16.2.ALL</version>
+        </dependency>
 
         <!-- BCrypt 密码加密（独立使用，不需要 Spring Security） -->
         <dependency>
             <groupId>org.springframework.security</groupId>
             <artifactId>spring-security-crypto</artifactId>
         </dependency>
+
+
+
 
         <!-- 参数校验 -->
         <dependency>
@@ -68,18 +76,19 @@
             <version>2.9.3</version>
         </dependency>
 
-        <!-- RocketMQ：通知消息 + 订单超时延迟消息（替代 RabbitMQ）
-             注意：锁方案已改为"内存锁 + 数据库乐观锁兜底"，不再依赖 Redisson -->
+        <!-- Redisson 分布式锁（接单互斥，按 helpId 粒度；DB CAS/唯一键仍作最终兜底）
+             独立引入核心包而非 redisson-spring-boot-starter，避免其 ConnectionFactory 抢占 StringRedisTemplate -->
+        <dependency>
+            <groupId>org.redisson</groupId>
+            <artifactId>redisson</artifactId>
+            <version>3.17.7</version>
+        </dependency>
+
+        <!-- RocketMQ：通知消息 + 订单超时延迟消息（替代 RabbitMQ） -->
         <dependency>
             <groupId>org.apache.rocketmq</groupId>
             <artifactId>rocketmq-spring-boot-starter</artifactId>
             <version>2.2.3</version>
-        </dependency>
-
-        <!-- WebSocket -->
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-websocket</artifactId>
         </dependency>
 
         <!-- Sa-Token 认证框架（含 JWT 支持） -->

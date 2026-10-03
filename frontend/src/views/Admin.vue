@@ -7,8 +7,8 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { getDashboardStats } from '@/api/order'
-import { getAdminUserList, toggleUserStatus, updateUserRole, getRoleList } from '@/api/user'
-import { getAdminHelpList, deleteHelp } from '@/api/help'
+import { getAdminUserList, toggleUserStatus, updateUserRole, getRoleList, kickoutUser } from '@/api/user'
+import { getAdminHelpList, deleteHelp, updateAdminHelpStatus } from '@/api/help'
 import type { RoleInfo } from '@/types'
 import { useConfirm } from '@/utils/confirm'
 
@@ -64,6 +64,15 @@ async function handleToggleStatus(user: any) {
     await toggleUserStatus(user.id, newStatus)
     user.status = newStatus
     ElMessage.success(`${action}成功`)
+  } catch { /* 拦截器已提示 */ }
+}
+
+/** 踢用户下线（该账号所有设备需重新登录） */
+async function handleKickout(user: any) {
+  if (!await confirm('踢下线', `确定要把用户「${user.nickname}」踢下线吗？该用户所有设备都需要重新登录。`)) return
+  try {
+    await kickoutUser(user.id)
+    ElMessage.success('已踢下线')
   } catch { /* 拦截器已提示 */ }
 }
 
@@ -132,6 +141,16 @@ async function handleDeleteHelp(help: any) {
     ElMessage.success('已删除')
     helps.value = helps.value.filter(h => h.id !== help.id)
     helpTotal.value--
+  } catch { /* 拦截器已提示 */ }
+}
+
+/** 下架求助：状态置为 4（已取消），首页不再展示 */
+async function handleHelpOffline(help: any) {
+  if (!await confirm('下架求助', `确定要下架求助「${help.title}」吗？下架后不会再出现在首页。`)) return
+  try {
+    await updateAdminHelpStatus(help.id, 4)
+    help.status = 4
+    ElMessage.success('已下架')
   } catch { /* 拦截器已提示 */ }
 }
 
@@ -308,7 +327,7 @@ onMounted(() => {
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="160" fixed="right">
+            <el-table-column label="操作" width="240" fixed="right">
               <template #default="{ row }">
                 <template v-if="row.roleId !== 1">
                   <el-button
@@ -326,7 +345,15 @@ onMounted(() => {
                     角色
                   </el-button>
                 </template>
-                <span v-else class="dim">-</span>
+                <el-button
+                  v-if="row.id !== (userStore.userInfo?.id || 0)"
+                  size="small"
+                  type="warning"
+                  plain
+                  @click="handleKickout(row)"
+                >
+                  踢下线
+                </el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -409,9 +436,18 @@ onMounted(() => {
                 <span class="dim">{{ formatDate(row.createTime) }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="150" fixed="right">
+            <el-table-column label="操作" width="230" fixed="right">
               <template #default="{ row }">
                 <el-button size="small" @click="viewHelpDetail(row.id)">查看</el-button>
+                <el-button
+                  v-if="row.status !== 4"
+                  size="small"
+                  type="warning"
+                  plain
+                  @click="handleHelpOffline(row)"
+                >
+                  下架
+                </el-button>
                 <el-button size="small" type="danger" plain @click="handleDeleteHelp(row)">
                   删除
                 </el-button>

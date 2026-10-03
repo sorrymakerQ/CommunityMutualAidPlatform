@@ -25,10 +25,6 @@ export default defineConfig({
       '@': resolve(__dirname, 'src')
     }
   },
-  define: {
-    // SockJS 兼容 Node v24+（global 对象已被移除）
-    global: 'globalThis'
-  },
   server: {
     port: 3000,
     proxy: {

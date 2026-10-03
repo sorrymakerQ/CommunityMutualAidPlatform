@@ -37,9 +37,9 @@ public interface UserMapper {
      * 插入用户，自动回填ID
      */
     @Insert("INSERT INTO tb_user " +
-            "(phone, password, nickname, avatar, gender, community, lng, lat, " +
+            "(phone, password, nickname, avatar, gender, address_id, " +
             "help_count, balance, intro, role_id, status, is_builtin, create_time, update_time, is_deleted) " +
-            "VALUES (#{phone}, #{password}, #{nickname}, #{avatar}, #{gender}, #{community}, #{lng}, #{lat}, " +
+            "VALUES (#{phone}, #{password}, #{nickname}, #{avatar}, #{gender}, #{addressId}, " +
             "#{helpCount}, 0.00, #{intro}, #{roleId}, #{status}, 0, NOW(), NOW(), 0)")
     @Options(useGeneratedKeys = true, keyProperty = "id")
     int insert(User user);
@@ -53,9 +53,7 @@ public interface UserMapper {
             "<if test='nickname != null'>, nickname = #{nickname}</if>" +
             "<if test='avatar != null'>, avatar = #{avatar}</if>" +
             "<if test='gender != null'>, gender = #{gender}</if>" +
-            "<if test='community != null'>, community = #{community}</if>" +
-            "<if test='lng != null'>, lng = #{lng}</if>" +
-            "<if test='lat != null'>, lat = #{lat}</if>" +
+            "<if test='addressId != null'>, address_id = #{addressId}</if>" +
             "<if test='helpCount != null'>, help_count = #{helpCount}</if>" +
             "<if test='intro != null'>, intro = #{intro}</if>" +
             "<if test='roleId != null'>, role_id = #{roleId}</if>" +
@@ -75,9 +73,7 @@ public interface UserMapper {
             "<if test='nickname != null'>, nickname = #{nickname}</if>" +
             "<if test='avatar != null'>, avatar = #{avatar}</if>" +
             "<if test='gender != null'>, gender = #{gender}</if>" +
-            "<if test='community != null'>, community = #{community}</if>" +
-            "<if test='lng != null'>, lng = #{lng}</if>" +
-            "<if test='lat != null'>, lat = #{lat}</if>" +
+            "<if test='addressId != null'>, address_id = #{addressId}</if>" +
             "<if test='helpCount != null'>, help_count = #{helpCount}</if>" +
             "<if test='intro != null'>, intro = #{intro}</if>" +
             "<if test='roleId != null'>, role_id = #{roleId}</if>" +

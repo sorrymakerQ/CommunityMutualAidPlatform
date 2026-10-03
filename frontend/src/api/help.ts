@@ -1,72 +1,66 @@
 /**
- * 求助相关 API 接口
+ * 求助相关接口
  */
-import request from '@/utils/request'
-import type { PublishHelpParams, HelpListParams, HelpRequest, HelpListResponse, Category } from '@/types'
+import request, { type Result } from '@/request'
+import type {
+  Category,
+  HelpListParams,
+  HelpListResponse,
+  HelpRequest,
+  PublishHelpParams,
+} from '@/types'
 
-/**
- * 获取求助分类列表
- */
-export function getCategoryList(): Promise<{ data: Category[] }> {
-  return request.get('/category/list')
+/** 分类列表 */
+export function getCategoryList() {
+  return request<Result<Category[]>>('/category/list', { method: 'GET' })
 }
 
-/**
- * 获取附近的求助列表
- * @param params lng, lat, radius, page, size
- */
-export function getHelpList(params: HelpListParams & { radius?: number }): Promise<HelpListResponse> {
-  return request.get('/help/nearby', { params })
+/** 求助列表（分页 / 关键词搜索） */
+export function getHelpList(params: HelpListParams) {
+  return request<Result<HelpListResponse['data']>>('/help/list', { method: 'GET', params })
 }
 
-/**
- * 获取求助详情
- */
-export function getHelpDetail(id: number): Promise<{ data: HelpRequest }> {
-  return request.get(`/help/${id}`)
+/** 求助详情 */
+export function getHelpDetail(id: number, silent = false) {
+  return request<Result<HelpRequest>>(`/help/${id}`, { method: 'GET', silent })
 }
 
-/**
- * 发布求助
- * @param idempotencyKey 幂等键（可选）：同一动作重试复用同一键，后端识别重复提交
- */
-export function publishHelp(params: PublishHelpParams, idempotencyKey?: string): Promise<{ data: { id: number } }> {
-  return request.post('/help/publish', params, idempotencyKey
-    ? ({ idempotencyKey } as any)
-    : undefined)
+/** 发布求助 */
+export function publishHelp(params: PublishHelpParams, idempotencyKey?: string) {
+  return request<Result<number>>('/help/publish', { method: 'POST', data: params, idempotencyKey })
 }
 
-/**
- * 支付求助（余额支付，支付成功后求助才上首页）
- */
-export function payHelp(id: number): Promise<{ success: boolean; data: number }> {
-  return request.post(`/pay/${id}`)
+/** 余额支付（支付成功后求助才上首页） */
+export function payHelp(id: number) {
+  return request<Result<number>>(`/pay/${id}`, { method: 'POST' })
 }
 
-/**
- * 取消求助（仅发布者本人可操作）
- */
-export function cancelHelp(id: number): Promise<{ success: boolean }> {
-  return request.put(`/help/${id}/cancel`)
+/** 支付宝支付：data 为收银台表单 HTML，需在新窗口写入并提交 */
+export function payHelpByAlipay(id: number) {
+  return request<Result<string>>(`/pay/alipay/${id}`, { method: 'POST' })
 }
 
-/**
- * 管理员 - 删除求助
- */
-export function deleteHelp(id: number): Promise<{ success: boolean }> {
-  return request.delete(`/admin/help/${id}`)
+/** 取消求助（仅发布者本人） */
+export function cancelHelp(id: number) {
+  return request<Result<null>>(`/help/${id}/cancel`, { method: 'PUT' })
 }
 
-/**
- * 管理员 - 获取求助列表（含举报信息）
- */
-export function getAdminHelpList(params: { page: number; size: number; status?: number }): Promise<{ data: any }> {
-  return request.get('/admin/helps', { params })
+/** 管理员 - 删除求助 */
+export function deleteHelp(id: number) {
+  return request<Result<null>>(`/admin/help/${id}`, { method: 'DELETE' })
 }
 
-/**
- * 获取我发布的求助列表
- */
-export function getMyHelps(params: { page: number; size: number; status?: number }): Promise<{ data: any }> {
-  return request.get('/help/my', { params })
+/** 管理员 - 修改求助状态（下架 = status 4） */
+export function updateAdminHelpStatus(id: number, status: number) {
+  return request<Result<null>>(`/admin/help/${id}/status?status=${status}`, { method: 'PUT' })
+}
+
+/** 管理员 - 求助列表（含举报信息） */
+export function getAdminHelpList(params: { page: number; size: number; status?: number }) {
+  return request<Result<any>>('/admin/helps', { method: 'GET', params })
+}
+
+/** 我发布的求助 */
+export function getMyHelps(params: { page: number; size: number; status?: number }) {
+  return request<Result<any>>('/help/my', { method: 'GET', params })
 }

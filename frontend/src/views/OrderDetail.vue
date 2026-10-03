@@ -9,6 +9,7 @@ import { getOrderDetail, cancelOrder, completeOrder, rateOrder } from '@/api/ord
 import { useUserStore } from '@/stores/user'
 import { useConfirm } from '@/utils/confirm'
 import NavBar from '@/components/NavBar.vue'
+import { regionName } from '@/data/regions'
 
 const { confirm, prompt } = useConfirm()
 const route = useRoute()
@@ -23,6 +24,8 @@ const orderId = computed(() => Number(route.params.id))
 const statusMap: Record<number, string> = {
   1: '已接单', 2: '进行中', 3: '已完成', 4: '已取消', 5: '已评价'
 }
+
+
 
 /** 状态 → el-tag type */
 const statusTagType = computed<'warning' | 'primary' | 'success' | 'info' | 'danger'>(() => {
@@ -52,7 +55,12 @@ const isMyAccept = computed(() => {
 const timeline = computed(() => {
   if (!order.value) return []
   const o = order.value
-  const nodes: Array<{ title: string; time: string; type: string; done: boolean }> = [
+  const nodes: Array<{
+    title: string
+    time: string
+    type: 'primary' | 'success' | 'warning' | 'danger' | 'info'
+    done: boolean
+  }> = [
     { title: '发布求助', time: fmtTime(o.helpCreateTime || o.createTime), type: 'primary', done: true },
     { title: '接单成功', time: fmtTime(o.createTime), type: 'success', done: true },
   ]
@@ -157,7 +165,7 @@ async function doReview() {
             <div class="info-grid">
               <div class="info-row"><span class="lbl">标题</span><span>{{ order.helpTitle }}</span></div>
               <div class="info-row"><span class="lbl">描述</span><span>{{ order.helpDescription || '无' }}</span></div>
-              <div class="info-row"><span class="lbl">地址</span><span>📍 {{ order.helpAddress || '未知' }}</span></div>
+              <div class="info-row"><span class="lbl">地址</span><span>📍 {{ regionName(order.helpAddressId) || '未知' }}{{ order.helpAddressDetail ? ` ${order.helpAddressDetail}` : '' }}</span></div>
               <div class="info-row"><span class="lbl">酬劳</span><span class="reward">¥{{ (order.helpReward || 0).toFixed(2) }}</span></div>
             </div>
           </div>

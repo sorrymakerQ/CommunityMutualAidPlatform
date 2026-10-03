@@ -16,6 +16,7 @@ import java.util.List;
 @Data
 public class HelpRequestDTO {
 
+
     @NotNull(message = "求助分类不能为空")
     private Long categoryId;
 
@@ -32,14 +33,12 @@ public class HelpRequestDTO {
     @DecimalMin(value = "0", message = "酬劳金额不能为负数")
     private BigDecimal reward;
 
-    @NotBlank(message = "地址不能为空")
-    private String address;
+    /** 求助地址ID（关联 tb_address 三级行） */
+    @NotNull(message = "地址不能为空")
+    private Long addressId;
 
-    @NotNull(message = "经度不能为空")
-    private Double lng;
-
-    @NotNull(message = "纬度不能为空")
-    private Double lat;
+    /** 详细地址（省市区之后的街道/小区/门牌等，选填） */
+    private String addressDetail;
 
     /** 是否紧急：0-普通，1-紧急 */
     private Integer urgent;

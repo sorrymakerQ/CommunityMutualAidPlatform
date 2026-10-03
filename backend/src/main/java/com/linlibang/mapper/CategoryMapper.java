@@ -16,20 +16,20 @@ public interface CategoryMapper {
     /**
      * 根据ID查询分类
      */
-    @Select("SELECT * FROM tb_category WHERE id = #{id}")
+    @Select("SELECT id,name,icon FROM tb_category WHERE id = #{id}")
     Category selectById(Long id);
 
     /**
      * 查询所有分类，按排序字段升序
      */
-    @Select("SELECT * FROM tb_category ORDER BY sort ASC")
+    @Select("SELECT id,name,icon FROM tb_category ORDER BY sort ASC")
     List<Category> selectAll();
 
     /**
      * 批量查询分类（用于避免 N+1 查询）
      */
     @Select("<script>" +
-            "SELECT * FROM tb_category WHERE id IN " +
+            "SELECT id,name,icon FROM tb_category WHERE id IN " +
             "<foreach collection='ids' item='id' open='(' separator=',' close=')'>#{id}</foreach>" +
             "</script>")
     List<Category> selectByIds(@Param("ids") List<Long> ids);

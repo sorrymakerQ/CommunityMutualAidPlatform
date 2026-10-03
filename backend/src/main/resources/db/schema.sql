@@ -20,9 +20,7 @@ CREATE TABLE `tb_user` (
     `nickname` VARCHAR(32) DEFAULT NULL COMMENT '昵称',
     `avatar` VARCHAR(256) DEFAULT NULL COMMENT '头像URL',
     `gender` TINYINT DEFAULT 0 COMMENT '性别 0未知 1男 2女',
-    `community` VARCHAR(128) DEFAULT NULL COMMENT '所在小区',
-    `lng` DECIMAL(10,6) DEFAULT NULL COMMENT '经度',
-    `lat` DECIMAL(10,6) DEFAULT NULL COMMENT '纬度',
+    `address_id` BIGINT DEFAULT NULL COMMENT '地址ID（关联 tb_address 三级行）',
     `credit` INT DEFAULT 100 COMMENT '信用分，默认100',
     `help_count` INT DEFAULT 0 COMMENT '累计帮助次数',
     `balance` DECIMAL(10,2) NOT NULL DEFAULT 0.00 COMMENT '账户余额（支付求助总额用，简单余额体系）',
@@ -36,8 +34,6 @@ CREATE TABLE `tb_user` (
     `is_deleted` TINYINT DEFAULT 0 COMMENT '逻辑删除 0未删除 1已删除',
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_phone` (`phone`),
-    KEY `idx_community` (`community`),
-    KEY `idx_lng_lat` (`lng`, `lat`),
     KEY `idx_role_id` (`role_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户表';
 
@@ -47,7 +43,7 @@ CREATE TABLE `tb_user` (
 DROP TABLE IF EXISTS `tb_role`;
 CREATE TABLE `tb_role` (
     `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '角色ID',
-    `code` VARCHAR(32) NOT NULL COMMENT '角色编码（Sa-Token 校验用，小写）：super_admin/admin/user/reviewer',
+    `code` VARCHAR(32) NOT NULL COMMENT '角色编码（Sa-Token 校验用，小写）：admin/user',
     `name` VARCHAR(32) NOT NULL COMMENT '角色名称：超级管理员/管理员/普通用户/审核员',
     `description` VARCHAR(128) DEFAULT NULL COMMENT '描述',
     `status` TINYINT DEFAULT 1 COMMENT '状态 1启用 0禁用',
@@ -57,12 +53,10 @@ CREATE TABLE `tb_role` (
     UNIQUE KEY `uk_code` (`code`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='角色表（身份）';
 
--- 初始角色数据（id 固定：1管理员 2普通用户 3审核员 4超级管理员）
+-- 初始角色数据（只有两种角色，id 固定：1管理员 2普通用户）
 INSERT INTO `tb_role` (`id`, `code`, `name`, `description`, `is_builtin`) VALUES
-(1, 'admin',       '管理员', '平台管理员，拥有全部权限', 1),
-(2, 'user',        '普通用户', '默认角色：可发布求助、接单、私信', 0),
-(3, 'reviewer',    '审核员', '审核求助内容', 0),
-(4, 'super_admin', '超级管理员', '系统最高权限：可管理管理员，拥有全部权限', 1);
+(1, 'admin', '管理员',   '平台管理员：管理用户、修改/下架任意求助、踢用户下线', 1),
+(2, 'user',  '普通用户', '默认角色：发布求助、接单、发送私信', 0);
 
 -- ==========================================
 -- 权限表（RBAC：功能点，"你能做什么"）
@@ -80,12 +74,15 @@ CREATE TABLE `tb_permission` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='权限表（功能点）';
 
 -- 初始权限数据（与代码中的 @SaCheckPermission 权限码一一对应）
-INSERT INTO `tb_permission` (`id`, `code`, `name`, `type`) VALUES
-(1, 'help:publish',  '发布求助', 1),
-(2, 'order:accept',  '接单',     1),
-(3, 'message:send',  '发送私信', 1),
-(4, 'help:audit',    '审核求助', 1),
-(5, 'user:manage',   '用户管理', 1);
+--   1~3 业务权限（用户 + 管理员都有）
+--   4~6 管理权限（仅管理员）
+INSERT INTO `tb_permission` (`id`, `code`, `name`, `type`, `sort`) VALUES
+(1, 'help:publish',  '发布求助',                    1, 1),
+(2, 'order:accept',  '接单',                        1, 2),
+(3, 'message:send',  '发送私信',                    1, 3),
+(4, 'help:manage',   '管理求助（改状态/下架/删除）', 1, 4),
+(5, 'user:kickout',  '踢用户下线',                  1, 5),
+(6, 'user:manage',   '用户管理（禁用/启用/改角色）', 1, 6);
 
 -- ==========================================
 -- 角色-权限关联表（RBAC：什么角色能用什么功能）
@@ -98,12 +95,10 @@ CREATE TABLE `tb_role_permission` (
     KEY `idx_permission_id` (`permission_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='角色-权限关联表';
 
--- 初始关联：admin 全权限；user 发布/接单/私信；reviewer 额外审核；super_admin 全权限
+-- 初始关联：admin 全权限（业务 + 管理）；user 仅业务三项
 INSERT INTO `tb_role_permission` (`role_id`, `permission_id`) VALUES
-(1, 1), (1, 2), (1, 3), (1, 4), (1, 5),
-(2, 1), (2, 2), (2, 3),
-(3, 1), (3, 2), (3, 3), (3, 4),
-(4, 1), (4, 2), (4, 3), (4, 4), (4, 5);
+(1, 1), (1, 2), (1, 3), (1, 4), (1, 5), (1, 6),
+(2, 1), (2, 2), (2, 3);
 
 -- ==========================================
 -- 求助分类表
@@ -143,9 +138,8 @@ CREATE TABLE `tb_help_request` (
     `description` TEXT COMMENT '详细描述',
     `images` VARCHAR(1024) DEFAULT NULL COMMENT '图片URL列表，逗号分隔',
     `reward` DECIMAL(10,2) DEFAULT 0 COMMENT '每人单价（酬劳，支付总额=单价×需要人数）',
-    `address` VARCHAR(256) NOT NULL COMMENT '地址',
-    `lng` DECIMAL(10,6) NOT NULL COMMENT '经度',
-    `lat` DECIMAL(10,6) NOT NULL COMMENT '纬度',
+    `address_id` BIGINT DEFAULT NULL COMMENT '地址ID（关联 tb_address 三级行）',
+    `address_detail` VARCHAR(256) DEFAULT NULL COMMENT '详细地址（街道/小区/门牌等，省市区之后）',
     `status` TINYINT DEFAULT 0 COMMENT '状态 0待支付(未上首页) 1招募中 2已满员(进行中) 3已完成 4已取消',
     `helper_num` INT NOT NULL DEFAULT 1 COMMENT '需要人数（多人求助，默认1人）',
     `accepted_num` INT NOT NULL DEFAULT 0 COMMENT '已接人数（达到 helper_num 后状态自动转2）',
@@ -160,7 +154,6 @@ CREATE TABLE `tb_help_request` (
     KEY `idx_user_id` (`user_id`),
     KEY `idx_category_id` (`category_id`),
     KEY `idx_status` (`status`),
-    KEY `idx_lng_lat` (`lng`, `lat`),
     KEY `idx_create_time` (`create_time`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='求助信息表';
 
@@ -173,6 +166,7 @@ CREATE TABLE `tb_order` (
     `help_id` BIGINT NOT NULL COMMENT '求助ID',
     `publisher_id` BIGINT NOT NULL COMMENT '发布者ID',
     `helper_id` BIGINT NOT NULL COMMENT '接单者ID',
+    `total_amount` DECIMAL(10,2) NOT NULL DEFAULT 0 COMMENT '订单总金额（下单时求助发布总金额快照 = 每人单价×需要人数）',
     `status` TINYINT DEFAULT 1 COMMENT '状态 1已接单 2进行中 3已完成 4已取消 5已评价',
     `cancel_reason` VARCHAR(256) DEFAULT NULL COMMENT '取消原因',
     `accept_time` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '接单时间',
@@ -192,7 +186,7 @@ CREATE TABLE `tb_order` (
     KEY `idx_helper_id` (`helper_id`),
     KEY `idx_status` (`status`),
     UNIQUE KEY `uk_help_helper_seq` (`help_id`, `helper_id`, `seq`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='订单表';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='履约单（接单时生成，一个求助最多 helper_num 条）';
 
 -- ==========================================
 -- 订单状态审计表（谁在何时把订单从什么状态改成什么状态）
@@ -218,35 +212,20 @@ CREATE TABLE `tb_order_status_log` (
 DROP TABLE IF EXISTS `tb_pay_order`;
 CREATE TABLE `tb_pay_order` (
     `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '支付订单ID',
+    `pay_no` VARCHAR(32) NOT NULL COMMENT '商户支付单号（对外唯一，作支付宝 out_trade_no）',
     `help_id` BIGINT NOT NULL COMMENT '关联求助ID',
     `publisher_id` BIGINT NOT NULL COMMENT '发布者ID',
     `amount` DECIMAL(10,2) NOT NULL COMMENT '支付总额（单价×需要人数）',
     `status` TINYINT DEFAULT 0 COMMENT '状态 0待支付 1已支付 2已取消',
+    `channel` TINYINT DEFAULT NULL COMMENT '支付渠道 0余额 1支付宝；NULL=尚未支付（渠道在支付成功时才确定）',
     `pay_time` DATETIME DEFAULT NULL COMMENT '支付时间',
     `create_time` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_pay_no` (`pay_no`),
     UNIQUE KEY `uk_help_id` (`help_id`),
     KEY `idx_publisher_id` (`publisher_id`),
     KEY `idx_status` (`status`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='支付订单表（余额支付）';
-
--- ==========================================
--- 接单申请表（老板审批制：邻居申请 → 发布者选择同意/拒绝）
--- ==========================================
-DROP TABLE IF EXISTS `tb_help_apply`;
-CREATE TABLE `tb_help_apply` (
-    `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '申请ID',
-    `help_id` BIGINT NOT NULL COMMENT '求助ID',
-    `helper_id` BIGINT NOT NULL COMMENT '申请接单者ID',
-    `status` TINYINT DEFAULT 0 COMMENT '状态 0待确认 1已同意 2已拒绝',
-    `handle_reason` VARCHAR(256) DEFAULT NULL COMMENT '审批理由（老板同意/拒绝时的说明，可空）',
-    `create_time` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '申请时间',
-    `update_time` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
-    PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_help_helper` (`help_id`, `helper_id`),
-    KEY `idx_helper_id` (`helper_id`),
-    KEY `idx_status` (`status`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='接单申请表（老板审批制）';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='支付订单表（余额/支付宝）';
 
 -- ==========================================
 -- 评价表（独立评价模块：订单双方互评，与用户/订单业务解耦）
@@ -289,9 +268,23 @@ CREATE TABLE `tb_credit_log` (
 --   ADD COLUMN total_reward DECIMAL(10,2) DEFAULT 0 COMMENT '支付总额' AFTER accepted_num;
 -- ALTER TABLE tb_help_request MODIFY COLUMN reward DECIMAL(10,2) DEFAULT 0 COMMENT '每人单价';
 -- CREATE TABLE IF NOT EXISTS tb_pay_order (...见上方结构...);
--- ⑤ 接单申请（v4 升级，老板审批制）：
--- CREATE TABLE IF NOT EXISTS tb_help_apply (...见上方结构...);
--- ⑥ 评价模块（v5 升级）：tb_review / tb_credit_log 结构见上方，直接复制 CREATE TABLE 执行
+-- ⑤ 评价模块（v5 升级）：tb_review / tb_credit_log 结构见上方，直接复制 CREATE TABLE 执行
+-- ⑥ 接单去审批（v6 升级，即接即录用）：申请/审批环节已删除，申请表不再需要
+-- DROP TABLE IF EXISTS tb_help_apply;
+-- ⑦ 支付单号 + 支付渠道（v7 升级）：支付单补商户单号 pay_no（作支付宝 out_trade_no）与渠道 channel
+--    完整脚本（含历史数据回填与备份）见 scripts/sql/010_pay_order_pay_no_channel.sql
+-- ALTER TABLE tb_pay_order
+--   ADD COLUMN pay_no VARCHAR(32) NULL COMMENT '商户支付单号（对外唯一，作支付宝 out_trade_no）' AFTER id,
+--   ADD COLUMN channel TINYINT DEFAULT NULL COMMENT '支付渠道 0余额 1支付宝；NULL=尚未支付' AFTER status;
+-- UPDATE tb_pay_order SET pay_no = CONCAT('LB', DATE_FORMAT(IFNULL(create_time, NOW()), '%Y%m%d%H%i%s'), LPAD(id, 6, '0')) WHERE pay_no IS NULL;
+-- ALTER TABLE tb_pay_order
+--   MODIFY COLUMN pay_no VARCHAR(32) NOT NULL COMMENT '商户支付单号（对外唯一，作支付宝 out_trade_no）',
+--   ADD UNIQUE KEY uk_pay_no (pay_no);
+-- ⑧ 订单号归位（v8 升级）：履约单 tb_order 不再持有自己的编号，「订单号」由支付单 tb_pay_order.pay_no 承载
+--    完整脚本（含备份）见 scripts/sql/011_drop_order_no_from_tb_order.sql
+--    ⚠️ 必须先删唯一索引，否则 INSTANT 会被拒绝（ERROR 1845 ALGORITHM=INSTANT is not supported）
+-- ALTER TABLE tb_order DROP INDEX uk_order_no;
+-- ALTER TABLE tb_order DROP COLUMN order_no, ALGORITHM=INSTANT;
 
 -- ==========================================
 -- 消息通知表
@@ -347,15 +340,15 @@ CREATE TABLE `tb_chat_message` (
 -- ALTER TABLE tb_user
 --   DROP COLUMN permissions,
 --   DROP COLUMN role;
--- ③ 超级管理员（v2 升级）：
+-- ③ 内置账号标记（v2 升级）：
 -- ALTER TABLE tb_role
 --   ADD COLUMN is_builtin TINYINT DEFAULT 0 COMMENT '系统内置角色(1=内置不可删除)' AFTER status;
 -- ALTER TABLE tb_user
 --   ADD COLUMN is_builtin TINYINT DEFAULT 0 COMMENT '系统内置账号(1=内置不可禁用/删除)' AFTER status;
--- INSERT IGNORE INTO tb_role (id, code, name, description, is_builtin) VALUES
---   (4, 'super_admin', '超级管理员', '系统最高权限：可管理管理员，拥有全部权限', 1);
--- INSERT IGNORE INTO tb_role_permission (role_id, permission_id) VALUES
---   (4, 1), (4, 2), (4, 3), (4, 4), (4, 5);
--- INSERT INTO tb_user (phone, password, nickname, role_id, status, is_builtin) VALUES
---   ('super', '$2a$10$LhunkeJYTLwzqaep.dxzbOMlvG8wrDUU1ctBomo2on6zq4/rv3RXC',
---    '超级管理员', 4, 1, 1);   -- 账号 super / 密码 123456
+-- ④ 简化 RBAC：只保留 admin/user，重写权限表（见 scripts/sql/008_simplify_rbac.sql）：
+-- UPDATE tb_user SET role_id = 2 WHERE role_id = 3;   -- 审核员 → 普通用户
+-- UPDATE tb_user SET role_id = 1 WHERE role_id = 4;   -- 超级管理员 → 管理员
+-- DELETE FROM tb_role WHERE id NOT IN (1, 2);
+--   （权限码：1 help:publish / 2 order:accept / 3 message:send /
+--     4 help:manage / 5 user:kickout / 6 user:manage）
+

@@ -16,7 +16,7 @@ import java.util.List;
  *   1. 变更一律走 updateCreditDelta —— 单条 UPDATE 原子自增（credit = credit + delta），
  *      并发不丢更新；GREATEST(0, ...) 兜底不为负；
  *   2. 调用方负责在同一事务内写 tb_credit_log 流水（主表与流水同生共死）；
- *   3. 事务提交后由调用方删除用户缓存 user:info:{userId}（Cache-Aside）。
+ *   3. 展示层每次按主键实时读（已不再手写用户信息 Redis 缓存，无需失效缓存）。
  */
 @Mapper
 public interface UserCreditMapper {

@@ -7,7 +7,8 @@ import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { publishHelp, getCategoryList } from '@/api/help'
 import { uploadImage } from '@/api/upload'
-import { newIdempotencyKey } from '@/utils/request'
+import { newIdempotencyKey } from '@/request'
+import { regions } from '@/data/regions'
 import type { Category } from '@/types'
 import type { FormInstance, FormRules, UploadRawFile } from 'element-plus'
 
@@ -23,9 +24,8 @@ const formData = reactive({
   title: '',
   description: '',
   reward: 0,
-  address: '',
-  lng: 0,
-  lat: 0,
+  addressId: 0,
+  addressDetail: '',
   urgent: 0,
   helperNum: 1
 })
@@ -38,8 +38,14 @@ const uploading = ref(false)
 const submitting = ref(false)
 /** 幂等键：表单挂载时生成，提交复用——双击/回车/重试发出的是同一个键，后端 SETNX 才能识别重复 */
 const publishIdemKey = ref(newIdempotencyKey())
-/** 定位中 */
-const locating = ref(false)
+
+/** 省市区级联选择器配置（静态数据：value=id，emitPath:false 直接取叶子 value（区县 id）） */
+const cascaderProps = {
+  value: 'value',
+  label: 'label',
+  children: 'children',
+  emitPath: false
+}
 
 // ========== 校验规则 ==========
 
@@ -59,8 +65,12 @@ const rules: FormRules = {
     { required: true, message: '请输入详细描述', trigger: 'blur' },
     { min: 10, max: 500, message: '描述长度 10~500 字', trigger: 'blur' }
   ],
-  address: [
-    { required: true, message: '请填写地址', trigger: 'blur' }
+  addressId: [
+    {
+      required: true,
+      validator: (_r, v, cb) => (v ? cb() : cb(new Error('请选择省市区地址'))),
+      trigger: 'change'
+    }
   ]
 }
 
@@ -75,6 +85,7 @@ onMounted(async () => {
 async function fetchCategories(): Promise<void> {
   try {
     const res = await getCategoryList()
+    console.log(res.data)
     if (res.data) categories.value = res.data
   } catch {
     /* 拦截器已提示 */
@@ -116,83 +127,11 @@ function beforeUpload(file: UploadRawFile): boolean {
   return true
 }
 
+
+
 /** 删除已上传图片 */
 function removeImage(idx: number): void {
   imageList.value.splice(idx, 1)
-}
-
-// ========== 默认位置（前端兜底：定位失败或不支持时使用） ==========
-// 与后端 application.yml 的 linlibang.default-location 保持一致（北京·天安门）
-const DEFAULT_LOCATION = {
-  lng: 116.397428,
-  lat: 39.90923,
-  address: '北京市东城区天安门广场'
-}
-
-/** 应用兜底位置 + 告知用户 */
-function applyDefaultLocation(reason: string): void {
-  formData.lng = DEFAULT_LOCATION.lng
-  formData.lat = DEFAULT_LOCATION.lat
-  formData.address = DEFAULT_LOCATION.address
-  formRef.value?.clearValidate('address')
-  // 用 warning 提示，让用户知道这不是"成功定位"，而是兜底的默认地址
-  ElMessage({
-    type: 'warning',
-    message: `${reason}，已为您设置为默认地址（${DEFAULT_LOCATION.address}），可手动修改`,
-    duration: 4000
-  })
-}
-
-/** 获取当前位置 */
-function getCurrentLocation(): void {
-  if (!navigator.geolocation) {
-    applyDefaultLocation('浏览器不支持定位')
-    return
-  }
-
-  locating.value = true
-  navigator.geolocation.getCurrentPosition(
-    (position) => {
-      formData.lng = position.coords.longitude
-      formData.lat = position.coords.latitude
-      fetchAddressByCoords(position.coords.longitude, position.coords.latitude)
-    },
-    (err) => {
-      locating.value = false
-      const reasonMap: Record<number, string> = {
-        [err.PERMISSION_DENIED]: '未授权定位权限',
-        [err.POSITION_UNAVAILABLE]: '无法获取位置信息（GPS 不可用）',
-        [err.TIMEOUT]: '定位超时'
-      }
-      applyDefaultLocation(reasonMap[err.code] || '定位失败')
-    },
-    { enableHighAccuracy: true, timeout: 10000, maximumAge: 300000 }
-  )
-}
-
-/** 逆地理编码：坐标 → 地址 */
-async function fetchAddressByCoords(lng: number, lat: number): Promise<void> {
-  try {
-    const res = await fetch(
-      `https://restapi.amap.com/v3/geocode/regeo?location=${lng},${lat}&key=${import.meta.env.VITE_AMAP_KEY}&radius=100&extensions=base`
-    )
-    const data = await res.json()
-    if (data.status === '1' && data.regeocode?.formatted_address) {
-      formData.address = data.regeocode.formatted_address
-      ElMessage.success('已获取当前位置')
-      formRef.value?.clearValidate('address')
-    } else {
-      // 高德返回坐标但无地址名，退化为坐标字符串
-      formData.address = `经度:${lng.toFixed(4)}, 纬度:${lat.toFixed(4)}`
-      ElMessage.success('已获取当前位置')
-      formRef.value?.clearValidate('address')
-    }
-  } catch {
-    // 网络失败 / key 失效 → 走兜底默认地址
-    applyDefaultLocation('地址解析失败')
-  } finally {
-    locating.value = false
-  }
 }
 
 /** 提交发布 */
@@ -212,18 +151,21 @@ async function handleSubmit(): Promise<void> {
       description: formData.description.trim(),
       images: imageList.value,
       reward: formData.reward,
-      address: formData.address,
-      lng: formData.lng,
-      lat: formData.lat,
+      addressId: formData.addressId,
+      addressDetail: formData.addressDetail,
       urgent: formData.urgent,
       helperNum: formData.helperNum
     }, publishIdemKey.value)
-    const helpId = (res as any).data?.id
+    // 后端 publishHelp 返回的 data 是 helpId 本身（数字），不是 { id } 对象
+    const helpId = (res as any).data
     ElMessage.success('发布成功！请支付后发布到首页')
     // 发布成功才换新键：之后的"再发布"是新动作；失败时键不变，重试仍是同一动作
     publishIdemKey.value = newIdempotencyKey()
-    // 跳转到详情页完成支付（待支付状态）
-    setTimeout(() => router.push(helpId ? `/help/${helpId}` : '/'), 800)
+    // 跳到待支付页（路由 /pay，旧地址 /pay.html 由别名兼容）
+    setTimeout(() => {
+      if (helpId) router.push({ name: 'pay', query: { helpId } })
+      else router.push('/')
+    }, 800)
   } catch {
     /* 拦截器已提示；幂等键不换，用户重试/重发会被后端识别为同一动作 */
   } finally {
@@ -290,28 +232,27 @@ async function handleSubmit(): Promise<void> {
           </el-form-item>
         </div>
 
-        <!-- 地址 -->
+        <!-- 地址（省市区级联） -->
         <div class="form-card">
-          <el-form-item label="地址信息" prop="address" required>
-            <div class="address-row">
-              <el-input
-                v-model="formData.address"
-                placeholder="详细地址或小区名称"
-                clearable
-                style="flex: 1;"
-              >
-                <template #prefix>
-                  <el-icon><Location /></el-icon>
-                </template>
-              </el-input>
-              <el-button
-                :loading="locating"
-                @click="getCurrentLocation"
-              >
-                <el-icon><Aim /></el-icon>
-                <span style="margin-left: 4px;">自动定位</span>
-              </el-button>
-            </div>
+          <el-form-item label="地址信息" prop="addressId" required>
+            <el-cascader
+              v-model="formData.addressId"
+              :props="cascaderProps"
+              :options="regions as any"
+              placeholder="请选择省 / 市 / 区县"
+              clearable
+              style="width: 100%;"
+            />
+            <span class="hint">按省市区选择地址</span>
+          </el-form-item>
+          <el-form-item label="详细地址" prop="addressDetail">
+            <el-input
+              v-model="formData.addressDetail"
+              maxlength="100"
+              show-word-limit
+              placeholder="小区 / 楼栋 / 门牌号等（选填）"
+              clearable
+            />
           </el-form-item>
         </div>
 
@@ -375,7 +316,7 @@ async function handleSubmit(): Promise<void> {
                   <el-icon color="#e6a23c"><Warning /></el-icon>
                   标记为紧急
                 </div>
-                <p class="urgent-desc">紧急求助会优先展示给附近邻居</p>
+                <p class="urgent-desc">紧急求助会优先展示给邻居</p>
               </div>
               <el-switch
                 v-model="formData.urgent"

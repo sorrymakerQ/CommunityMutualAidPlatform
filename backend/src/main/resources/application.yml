@@ -44,17 +44,16 @@ spring:
     date-format: yyyy-MM-dd HH:mm:ss
     time-zone: Asia/Shanghai
 
-# RocketMQ 配置（替代 RabbitMQ）
+# RocketMQ 配置
 rocketmq:
-  # NameServer 地址。
-  # ⚠️ 不要写成 ${ROCKETMQ_NAMESERVER:localhost:9876} 形式：
-  # 若环境变量存在但值为空字符串，Spring 会解析出 ""（空串≠null），
-  # RocketMQ 客户端拿到空地址直接报 "connect to null failed"。
-  # 需要覆盖地址时，直接改这里或使用 --rocketmq.name-server= 启动参数。
   name-server: localhost:9876
+  # 支付超时延迟等级（内置等级表：1s 5s 10s 30s 1m 2m … 15=20m 16=30m 17=1h 18=2h）
+  # 16 = 30 分钟（生产值）；本地联调想快速验证"超时自动作废"，临时改成 3（= 10 秒）即可，无需改代码
+  pay-timeout:
+    delay-level: 16
   producer:
     # 生产组
-    group: linlibang-producer-group
+    group: producer-group
     # 发送超时 3 秒（与业务"MQ 不可用不影响接单"的容错策略匹配）
     send-message-timeout: 3000
     # 生产端重试：同步发送失败自动重试 2 次（共最多 3 次尝试），仍失败抛异常由业务 try-catch 兜底
@@ -75,26 +74,18 @@ logging:
 
 # Sa-Token 认证配置
 sa-token:
-  # JWT 密钥（生产环境通过环境变量 SA_TOKEN_JWT_SECRET_KEY 覆盖）
-  jwt-secret-key: ${SA_TOKEN_JWT_SECRET_KEY}
   # Token 有效期：7天
   timeout: 604800
   # 临时有效期（用户持续操作自动续期）：3天
-  active-timeout: 259200
+  active-timeout: -1
   # 是否允许同一账号多地同时登录
   is-concurrent: true
-  # Token 风格：tik（随机token），jwt（JWT风格）
+  # Token 风格：tik
   token-style: tik
   # 从请求头读取 Token 的名称为 satoken
   token-name: satoken
+  is-log: true
 
-# 社区互助平台自定义配置
-linlibang:
-  # 默认坐标（前端定位失败/未提供坐标时的兜底值：北京·天安门）
-  default-location:
-    lng: 116.397428
-    lat: 39.90923
-    address: 北京市东城区天安门广场
 
 # ==========================================
 # 阿里云 OSS 配置（敏感信息请通过环境变量设置）
@@ -119,3 +110,21 @@ aliyun:
     base-url: https://linglibang.oss-cn-beijing.aliyuncs.com
     # 上传文件大小限制（MB）
     max-size: 10
+
+
+
+
+# ==========================================
+# 支付宝支付配置（沙箱环境）
+# ==========================================
+alipay:
+  #appid
+  app-id: 9021000168674005
+  #商户私钥
+  app-private-key: ${ALIPAY_APP_PRIVATE_KEY:}
+  #支付宝公钥
+  alipay-public-key: MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAzgr9hqUhHChXzr3Fdo31muop7l+H6wxVXcQ49uIHzreRe36f+jiWGsTbqO7lzW3mTXRbHCQOsJRFhzhIu5e+mgpHHdW4H+y5M7ubrnm2pCeWTPzEMQD6tkS9RQauZ+yOiL8hqkegZBInBsxTpcxQNMgxl3v1t6ZoDOMC/jsXe5W2tr/rb4+57ZgiK+gq5efi0kicVSKMJOL3pzaTeG6GKW4x962Xp4686QcxrfQ9iCFl9dtX4MikjrpXN7ztRUqHiZMQO7kXl/kyT+twTf8do7USgnQQ79dEcvd5SxIHZ6kIPCryhqK4JleHOxtdjU2u/te6CbKk4vixCecL99CkCwIDAQAB
+  gateway-url: https://openapi-sandbox.dl.alipaydev.com/gateway.do
+  notify-url: http://wbac63ee.natappfree.cc/api/pay/notify
+  return-url: http://127.0.0.1:3000/pay-success
+  seller-id: 2088721114010627

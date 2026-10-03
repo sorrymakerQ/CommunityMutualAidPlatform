@@ -2,6 +2,7 @@ package com.linlibang.entity;
 
 import lombok.Data;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 /**
@@ -21,6 +22,9 @@ public class Order {
 
     /** 接单者用户ID */
     private Long helperId;
+
+    /** 订单总金额（下单时求助发布总金额的快照 = 每人单价 × 需要人数） */
+    private BigDecimal totalAmount;
 
     /** 状态：1已接单 2进行中 3已完成 4已取消 5已评价 */
     private Integer status;

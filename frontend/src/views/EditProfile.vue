@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { updateUserInfo } from '@/api/user'
 import { uploadImage } from '@/api/upload'
+import { regions, regionName } from '@/data/regions'
 import type { UpdateUserParams } from '@/types'
 import type { FormInstance, FormRules, UploadRawFile } from 'element-plus'
 
@@ -18,9 +19,17 @@ const formData = reactive<UpdateUserParams>({
   nickname: '',
   avatar: '',
   gender: 0,
-  community: '',
+  addressId: undefined,
   intro: ''
 })
+
+/** 省市区级联选择器配置（静态数据：value=id，emitPath:false 直接取叶子 value（区县 id）） */
+const cascaderProps = {
+  value: 'value',
+  label: 'label',
+  children: 'children',
+  emitPath: false
+}
 
 /** 校验规则 */
 const rules: FormRules = {
@@ -35,7 +44,7 @@ onMounted(() => {
     formData.nickname = userInfo.value.nickname || ''
     formData.avatar = userInfo.value.avatar || ''
     formData.gender = userInfo.value.gender || 0
-    formData.community = userInfo.value.community || ''
+    formData.addressId = userInfo.value.addressId
     formData.intro = userInfo.value.intro || ''
   }
 })
@@ -84,7 +93,7 @@ async function handleSave(): Promise<void> {
       nickname: formData.nickname?.trim(),
       avatar: formData.avatar,
       gender: formData.gender,
-      community: formData.community?.trim(),
+      addressId: formData.addressId,
       intro: formData.intro?.trim()
     })
     await userStore.fetchUserInfo()
@@ -156,18 +165,19 @@ async function handleSave(): Promise<void> {
             </el-radio-group>
           </el-form-item>
 
-          <!-- 所在小区 -->
-          <el-form-item label="所在小区">
-            <el-input
-              v-model="formData.community"
-              maxlength="30"
-              placeholder="例如：阳光花园小区"
+          <!-- 所在地区（省市区级联） -->
+          <el-form-item label="所在地区">
+            <el-cascader
+              v-model="formData.addressId"
+              :props="cascaderProps"
+              :options="regions as any"
+              placeholder="请选择省 / 市 / 区县"
               clearable
-            >
-              <template #prefix>
-                <el-icon><Location /></el-icon>
-              </template>
-            </el-input>
+              style="width: 100%;"
+            />
+            <div v-if="userInfo?.addressId" class="address-current">
+              当前地址：{{ regionName(userInfo.addressId) }}
+            </div>
           </el-form-item>
 
           <!-- 简介 -->
@@ -254,6 +264,14 @@ async function handleSave(): Promise<void> {
 .hint {
   font-size: 12px;
   color: #bbb;
+}
+
+/* 当前地址提示 */
+.address-current {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #909399;
+  line-height: 1.5;
 }
 
 /* 按钮行 */

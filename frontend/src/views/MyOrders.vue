@@ -4,7 +4,6 @@ import { useRoute, useRouter } from 'vue-router'
 import { getOrderList, cancelOrder, completeOrder, rateOrder } from '@/api/order'
 import { getMyHelps, cancelHelp } from '@/api/help'
 import { useConfirm } from '@/utils/confirm'
-import ChatBox from '@/components/ChatBox.vue'
 
 const { confirm, prompt } = useConfirm()
 const route = useRoute()
@@ -12,7 +11,6 @@ const router = useRouter()
 const tab = ref<string>((route.query.role as string) || 'publisher')
 const items = ref<any[]>([])
 const loading = ref(true)
-const chatOrderId = ref(0)
 
 // ===== 状态文案 =====
 const orderStatusMap: Record<number, string> = { 1: '已接单', 2: '进行中', 3: '已完成', 4: '已取消', 5: '已评价' }
@@ -99,10 +97,19 @@ onMounted(load)
 
 function goDetail(item: any) {
   if (item._type === 'help') {
+    // 待支付的求助 → 待支付页；其余 → 详情页
+    if (item.status === 0) {
+      goPay(item.id)
+      return
+    }
     router.push(`/help/${item.id}`)
   } else {
     router.push(`/order/${item.id}`)
   }
+}
+
+function goPay(id: number) {
+  router.push({ name: 'pay', query: { helpId: id } })
 }
 
 function formatDate(dateStr: string): string {
@@ -149,10 +156,18 @@ function formatDate(dateStr: string): string {
             <span class="dim">{{ formatDate(row.createTime) }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="120" fixed="right">
+        <el-table-column label="操作" width="140" fixed="right">
           <template #default="{ row }">
             <el-button
-              v-if="row.status === 1"
+              v-if="row.status === 0"
+              type="primary"
+              size="small"
+              @click.stop="goPay(row.id)"
+            >
+              去支付
+            </el-button>
+            <el-button
+              v-else-if="row.status === 1"
               type="danger"
               size="small"
               plain
@@ -210,9 +225,6 @@ function formatDate(dateStr: string): string {
         <el-table-column label="操作" width="220" fixed="right">
           <template #default="{ row }">
             <template v-if="row.status === 2">
-              <el-button type="primary" size="small" plain @click.stop="chatOrderId = row.id">
-                私信
-              </el-button>
               <el-button type="danger" size="small" plain @click.stop="doCancelOrder(row)">
                 取消
               </el-button>
@@ -237,13 +249,6 @@ function formatDate(dateStr: string): string {
         </el-button>
       </el-empty>
     </div>
-
-    <ChatBox
-      v-if="chatOrderId > 0"
-      :order-id="chatOrderId"
-      :show="true"
-      @close="chatOrderId = 0"
-    />
   </div>
 </template>
 

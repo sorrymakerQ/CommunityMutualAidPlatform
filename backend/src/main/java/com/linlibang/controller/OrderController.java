@@ -2,7 +2,6 @@ package com.linlibang.controller;
 
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckPermission;
-import cn.dev33.satoken.stp.StpUtil;
 import com.linlibang.dto.Result;
 import com.linlibang.service.OrderService;
 import org.springframework.web.bind.annotation.*;
@@ -13,6 +12,8 @@ import java.util.Map;
 /**
  * 订单控制器
  * 处理接单、取消、完成、评价等请求
+ *
+ * 当前登录用户由 Service 层用 StpUtil 获取，控制器不再解析 userId 往下传。
  */
 @RestController
 @RequestMapping("/order")
@@ -22,47 +23,14 @@ public class OrderController {
     private OrderService orderService;
 
     /**
-     * 接单（老板审批制）— 提交申请，等待发布者确认
+     * 接单（即接即录用）— 校验通过即生成订单并占用名额，无需发布者审批
      *
      * @param helpId 求助ID
      */
     @SaCheckPermission("order:accept")
     @PostMapping("/accept/{helpId}")
     public Result acceptOrder(@PathVariable Long helpId) {
-        long userId = StpUtil.getLoginIdAsLong();
-        return orderService.acceptOrder(helpId, userId);
-    }
-
-    /**
-     * 发布者：查看求助的申请列表
-     */
-    @SaCheckLogin
-    @GetMapping("/apply-list/{helpId}")
-    public Result getApplyList(@PathVariable Long helpId) {
-        long userId = StpUtil.getLoginIdAsLong();
-        return orderService.getApplyList(helpId, userId);
-    }
-
-    /**
-     * 发布者：同意申请（生成订单 + 占名额），可附审批理由
-     */
-    @SaCheckLogin
-    @PostMapping("/apply/{applyId}/approve")
-    public Result approveApply(@PathVariable Long applyId, @RequestBody(required = false) Map<String, String> body) {
-        long userId = StpUtil.getLoginIdAsLong();
-        String reason = body != null ? body.get("reason") : null;
-        return orderService.approveApply(applyId, userId, reason);
-    }
-
-    /**
-     * 发布者：拒绝申请，可附拒绝理由（通知申请人）
-     */
-    @SaCheckLogin
-    @PostMapping("/apply/{applyId}/reject")
-    public Result rejectApply(@PathVariable Long applyId, @RequestBody(required = false) Map<String, String> body) {
-        long userId = StpUtil.getLoginIdAsLong();
-        String reason = body != null ? body.get("reason") : null;
-        return orderService.rejectApply(applyId, userId, reason);
+        return orderService.acceptOrder(helpId);
     }
 
     /**
@@ -74,9 +42,8 @@ public class OrderController {
     @SaCheckLogin
     @PutMapping("/{id}/cancel")
     public Result cancelOrder(@PathVariable Long id, @RequestBody Map<String, String> body) {
-        long userId = StpUtil.getLoginIdAsLong();
         String reason = body.getOrDefault("reason", "用户主动取消");
-        return orderService.cancelOrder(id, userId, reason);
+        return orderService.cancelOrder(id, reason);
     }
 
     /**
@@ -87,8 +54,7 @@ public class OrderController {
     @SaCheckLogin
     @PutMapping("/{id}/finish")
     public Result finishOrder(@PathVariable Long id) {
-        long userId = StpUtil.getLoginIdAsLong();
-        return orderService.finishOrder(id, userId);
+        return orderService.finishOrder(id);
     }
 
     /**
@@ -100,7 +66,6 @@ public class OrderController {
     @SaCheckLogin
     @PutMapping("/{id}/review")
     public Result reviewOrder(@PathVariable Long id, @RequestBody Map<String, Object> body) {
-        long userId = StpUtil.getLoginIdAsLong();
         Object scoreObj = body.get("score");
         if (scoreObj == null) {
             return Result.fail("评分不能为空");
@@ -110,7 +75,7 @@ public class OrderController {
             return Result.fail("评分范围为1-5分");
         }
         String comment = body.get("comment") != null ? body.get("comment").toString() : null;
-        return orderService.reviewOrder(id, userId, score, comment);
+        return orderService.reviewOrder(id, score, comment);
     }
 
     /**
@@ -121,8 +86,7 @@ public class OrderController {
     @SaCheckLogin
     @GetMapping("/{id}")
     public Result getOrderById(@PathVariable Long id) {
-        long userId = StpUtil.getLoginIdAsLong();
-        return orderService.getOrderById(id, userId);
+        return orderService.getOrderById(id);
     }
 
     /**
@@ -140,7 +104,6 @@ public class OrderController {
             @RequestParam(required = false, defaultValue = "10") Integer size) {
         page = Math.max(page, 1);
         size = Math.max(Math.min(size, 50), 1);  // 限制最大每页条数
-        long userId = StpUtil.getLoginIdAsLong();
-        return orderService.getMyOrders(userId, role, page, size);
+        return orderService.getMyOrders(role, page, size);
     }
 }

@@ -18,7 +18,7 @@ public interface RoleMapper {
     Role selectById(@Param("id") Long id);
 
     /**
-     * 根据编码查询角色（如 admin/user/reviewer）
+     * 根据编码查询角色（如 admin/user）
      */
     @Select("SELECT * FROM tb_role WHERE code = #{code} AND status = 1")
     Role selectByCode(@Param("code") String code);

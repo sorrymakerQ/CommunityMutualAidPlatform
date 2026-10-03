@@ -5,6 +5,7 @@ import { useUserStore } from '@/stores/user'
 import { getOrderList, getUnreadCount } from '@/api/order'
 import { getMyHelps } from '@/api/help'
 import { useConfirm } from '@/utils/confirm'
+import { regionName } from '@/data/regions'
 
 const { confirm } = useConfirm()
 const router = useRouter()
@@ -29,6 +30,23 @@ function statusTagType(s: number): 'warning' | 'primary' | 'success' | 'info' | 
     1: 'warning', 2: 'primary', 3: 'success', 4: 'info', 5: 'danger'
   }
   return map[s] || 'info'
+}
+
+/** 头像兜底（与 App.vue / OrderDetail.vue 保持一致的静态资源） */
+function defaultAvatar(_name?: string): string {
+  return '/default-avatar.svg'
+}
+
+/** 时间戳 → 相对时间（口径同 Home.vue） */
+function fmtTime(d?: string): string {
+  if (!d) return ''
+  const diff = Date.now() - new Date(d).getTime()
+  const m = Math.floor(diff / 60000)
+  if (m < 1) return '刚刚'
+  if (m < 60) return `${m}分钟前`
+  const h = Math.floor(diff / 3600000)
+  if (h < 24) return `${h}小时前`
+  return `${Math.floor(diff / 86400000)}天前`
 }
 
 onMounted(async () => {
@@ -113,7 +131,7 @@ function goDetail(row: any) {
           <p class="banner-bio">{{ userInfo.intro || '还没有填写简介...' }}</p>
           <div class="banner-meta">
             <span>📱 {{ userInfo.phone }}</span>
-            <span>📍 {{ userInfo.community || '未设置小区' }}</span>
+            <span>📍 {{ regionName(userInfo.addressId) || '未设置地址' }}</span>
           </div>
         </div>
         <div class="banner-actions">

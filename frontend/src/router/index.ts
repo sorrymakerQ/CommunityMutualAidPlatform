@@ -11,7 +11,8 @@ const Login = () => import('@/views/Login.vue')
 const Register = () => import('@/views/Register.vue')
 const PublishHelp = () => import('@/views/PublishHelp.vue')
 const HelpDetail = () => import('@/views/HelpDetail.vue')
-const MapView = () => import('@/views/MapView.vue')
+const Pay = () => import('@/views/Pay.vue')
+const PaySuccess = () => import('@/views/PaySuccess.vue')
 const Profile = () => import('@/views/Profile.vue')
 const EditProfile = () => import('@/views/EditProfile.vue')
 const MyOrders = () => import('@/views/MyOrders.vue')
@@ -25,7 +26,9 @@ const routes: RouteRecordRaw[] = [
   { path: '/register',  name: 'register',      component: Register,      meta: { title: '注册' } },
   { path: '/publish',   name: 'publish',       component: PublishHelp,   meta: { title: '发布求助', requireAuth: true } },
   { path: '/help/:id',  name: 'help-detail',   component: HelpDetail,    meta: { title: '求助详情' } },
-  { path: '/map',       name: 'map',           component: MapView,       meta: { title: '附近地图' } },
+  // 支付相关：别名保留历史地址（/pay.html、/pay-success.html），旧外链与支付宝回跳都能直达
+  { path: '/pay',       name: 'pay',           component: Pay,           alias: '/pay.html',         meta: { title: '待支付', requireAuth: true } },
+  { path: '/pay-success', name: 'pay-success', component: PaySuccess,    alias: '/pay-success.html', meta: { title: '支付成功' } },
   { path: '/profile',   name: 'profile',       component: Profile,       meta: { title: '个人中心', requireAuth: true } },
   { path: '/profile/edit', name: 'profile-edit', component: EditProfile, meta: { title: '编辑资料', requireAuth: true } },
   { path: '/orders',    name: 'orders',        component: MyOrders,      meta: { title: '我的订单', requireAuth: true } },
@@ -58,7 +61,7 @@ router.beforeEach((to, _from, next) => {
     }
 
     // 不是管理员但访问管理员页面 → 跳首页
-    if (to.meta?.requireAdmin && roleName !== 'admin' && roleName !== 'super_admin') {
+    if (to.meta?.requireAdmin && roleName !== 'admin') {
       next({ name: 'home' })
       return
     }

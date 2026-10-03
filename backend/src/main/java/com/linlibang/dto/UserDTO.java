@@ -19,14 +19,8 @@ public class UserDTO {
     /** 性别：0-未知，1-男，2-女 */
     private Integer gender;
 
-    /** 所在小区 */
-    private String community;
-
-    /** 经度 */
-    private Double lng;
-
-    /** 纬度 */
-    private Double lat;
+    /** 所在地址ID（关联 tb_address 三级行） */
+    private Long addressId;
 
     /** 信用分 */
     private Integer credit;
@@ -43,6 +37,6 @@ public class UserDTO {
     /** 角色ID（关联 tb_role） */
     private Long roleId;
 
-    /** 角色编码（如 admin/user/reviewer，前端判断权限用） */
+    /** 角色编码（admin/user，前端判断权限用） */
     private String roleName;
 }

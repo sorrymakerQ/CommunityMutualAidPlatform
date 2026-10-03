@@ -1,107 +1,70 @@
 /**
- * 订单相关 API 接口
+ * 订单 + 通知 + 管理后台接口
  */
-import request from '@/utils/request'
-import type { Order, OrderListParams, Notification } from '@/types'
+import request, { type Result } from '@/request'
+import type { Notification, Order, OrderListParams } from '@/types'
 
-/**
- * 接单（老板审批制：提交接单申请，等待发布者确认）
- */
-export function acceptOrder(helpId: number): Promise<{ data: { orderId: number } }> {
-  return request.post(`/order/accept/${helpId}`)
+/** 接单（即接即录用：校验通过直接生成订单并占用名额） */
+export function acceptOrder(helpId: number) {
+  return request<Result<{ orderId: number }>>(`/order/accept/${helpId}`, { method: 'POST' })
 }
 
-/**
- * 发布者：查看求助的接单申请列表
- */
-export function getApplyList(helpId: number): Promise<{ data: any }> {
-  return request.get(`/order/apply-list/${helpId}`)
+/** 我的订单列表 */
+export function getOrderList(params: OrderListParams) {
+  return request<Result<{ list: Order[]; total: number }>>('/order/my', { method: 'GET', params })
 }
 
-/**
- * 发布者：同意接单申请（生成订单+占名额），可附审批理由
- */
-export function approveApply(applyId: number, reason?: string): Promise<{ success: boolean }> {
-  return request.post(`/order/apply/${applyId}/approve`, { reason: reason || '' })
+/** 订单详情 */
+export function getOrderDetail(orderId: number) {
+  return request<Result<Order>>(`/order/${orderId}`, { method: 'GET' })
 }
 
-/**
- * 发布者：拒绝接单申请（带理由通知申请人）
- */
-export function rejectApply(applyId: number, reason?: string): Promise<{ success: boolean }> {
-  return request.post(`/order/apply/${applyId}/reject`, { reason: reason || '' })
+/** 完成订单 */
+export function completeOrder(orderId: number) {
+  return request<Result<null>>(`/order/${orderId}/finish`, { method: 'PUT' })
 }
 
-/**
- * 获取订单列表
- */
-export function getOrderList(params: OrderListParams): Promise<{ data: { list: Order[]; total: number } }> {
-  return request.get('/order/my', { params })
+/** 取消订单 */
+export function cancelOrder(orderId: number, reason: string) {
+  return request<Result<null>>(`/order/${orderId}/cancel`, { method: 'PUT', data: { reason } })
 }
 
-/**
- * 获取订单详情
- */
-export function getOrderDetail(orderId: number): Promise<{ data: Order }> {
-  return request.get(`/order/${orderId}`)
+/** 评价订单 */
+export function rateOrder(orderId: number, score: number, comment: string) {
+  return request<Result<null>>(`/order/${orderId}/review`, {
+    method: 'PUT',
+    data: { score, comment },
+  })
 }
 
-/**
- * 完成订单
- */
-export function completeOrder(orderId: number): Promise<{ success: boolean }> {
-  return request.put(`/order/${orderId}/finish`)
+// ==================== 通知 ====================
+
+/** 通知列表 */
+export function getNotifications(params: { page: number; size: number }) {
+  return request<Result<{ list: Notification[]; total: number }>>('/notifications', {
+    method: 'GET',
+    params,
+  })
 }
 
-/**
- * 取消订单
- */
-export function cancelOrder(orderId: number, reason: string): Promise<{ success: boolean }> {
-  return request.put(`/order/${orderId}/cancel`, { reason })
+/** 标记通知已读 */
+export function markNotificationRead(id: number) {
+  return request<Result<null>>(`/notifications/${id}/read`, { method: 'PUT' })
 }
 
-/**
- * 评价订单
- */
-export function rateOrder(orderId: number, score: number, comment: string): Promise<{ success: boolean }> {
-  return request.put(`/order/${orderId}/review`, { score, comment })
+/** 未读通知数 */
+export function getUnreadCount() {
+  return request<Result<{ count: number }>>('/notifications/unread-count', { method: 'GET' })
 }
 
-// ==================== 消息通知相关 ====================
-
-/**
- * 获取通知列表
- */
-export function getNotifications(params: { page: number; size: number }): Promise<{ data: { list: Notification[]; total: number } }> {
-  return request.get('/notifications', { params })
+/** 全部标记已读 */
+export function markAllRead() {
+  return request<Result<null>>('/notifications/read-all', { method: 'PUT' })
 }
 
-/**
- * 标记通知为已读
- */
-export function markNotificationRead(id: number): Promise<{ success: boolean }> {
-  return request.put(`/notifications/${id}/read`)
-}
+// ==================== 管理后台 ====================
 
-/**
- * 获取未读通知数量
- */
-export function getUnreadCount(): Promise<{ data: { count: number } }> {
-  return request.get('/notifications/unread-count')
-}
-
-/**
- * 全部标记为已读
- */
-export function markAllRead(): Promise<{ success: boolean }> {
-  return request.put('/notifications/read-all')
-}
-
-// ==================== 管理后台相关 ====================
-
-/**
- * 获取管理后台统计数据
- */
-export function getDashboardStats(): Promise<{ data: any }> {
-  return request.get('/admin/stats')
+/** 管理后台统计 */
+export function getDashboardStats() {
+  return request<Result<any>>('/admin/stats', { method: 'GET' })
 }

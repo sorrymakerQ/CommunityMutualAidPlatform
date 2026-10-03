@@ -7,6 +7,8 @@ import com.linlibang.dto.HelpRequestDTO;
 import com.linlibang.dto.Result;
 import com.linlibang.service.HelpRequestService;
 import com.linlibang.utils.RedisUtils;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.web.bind.annotation.*;
 
 import javax.annotation.Resource;
@@ -26,6 +28,8 @@ public class HelpRequestController {
 
     @Resource
     private RedisUtils redisUtils;
+    @Autowired
+    private StringRedisTemplate stringRedisTemplate;
 
     /**
      * 发布求助 — 需要 help:publish 权限
@@ -38,35 +42,30 @@ public class HelpRequestController {
         long userId = StpUtil.getLoginIdAsLong();
         // 幂等键（Redis SETNX，30 分钟窗口）
         if (requestId != null && !requestId.trim().isEmpty()) {
-            if (!redisUtils.setIfAbsent("idem:publish:" + userId + ":" + requestId.trim(),
-                    "1", 30, TimeUnit.MINUTES)) {
+            if (stringRedisTemplate.opsForValue().setIfAbsent("idem:publish:" + userId + ":" + requestId.trim(), "1", 30, TimeUnit.MINUTES)) {
                 return Result.fail("请勿重复提交");
             }
         }
-        return helpRequestService.publishHelp(dto, userId);
+        return helpRequestService.publishHelp(dto);
     }
 
     /**
-     * 查询附近的求助
+     * 查询求助列表（首页分页 / 关键词搜索）
      *
-     * @param lng    中心经度
-     * @param lat    中心纬度
-     * @param radius 搜索半径（公里），默认5
-     * @param page   页码，默认1
-     * @param size   每页条数，默认10
+     * @param page       页码，默认1
+     * @param size       每页条数，默认10
+     * @param categoryId 分类ID（可选）
+     * @param keyword    关键词（可选）
      */
-    @GetMapping("/nearby")
-    public Result getNearbyHelp(
-            @RequestParam(required = false) Double lng,
-            @RequestParam(required = false) Double lat,
-            @RequestParam(required = false, defaultValue = "5") Integer radius,
+    @GetMapping("/list")
+    public Result getHelpList(
             @RequestParam(required = false, defaultValue = "1") Integer page,
             @RequestParam(required = false, defaultValue = "10") Integer size,
             @RequestParam(required = false) Long categoryId,
             @RequestParam(required = false) String keyword) {
         page = Math.max(page, 1);
         size = Math.max(Math.min(size, 50), 1);  // 限制最大每页条数
-        return helpRequestService.getNearbyHelp(lng, lat, radius, page, size, categoryId, keyword);
+        return helpRequestService.getHelpList(page, size, categoryId, keyword);
     }
 
     /**
@@ -106,8 +105,7 @@ public class HelpRequestController {
     @SaCheckLogin
     @PutMapping("/{id}/cancel")
     public Result cancelHelp(@PathVariable Long id) {
-        long userId = StpUtil.getLoginIdAsLong();
-        return helpRequestService.cancelHelp(id, userId);
+        return helpRequestService.cancelHelp(id);
     }
 
     /**
@@ -123,7 +121,6 @@ public class HelpRequestController {
             @RequestParam(required = false, defaultValue = "10") Integer size) {
         page = Math.max(page, 1);
         size = Math.max(Math.min(size, 50), 1);  // 限制最大每页条数
-        long userId = StpUtil.getLoginIdAsLong();
-        return helpRequestService.getMyHelp(userId, page, size);
+        return helpRequestService.getMyHelp(page, size);
     }
 }

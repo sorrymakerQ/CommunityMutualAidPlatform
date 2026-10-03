@@ -23,6 +23,10 @@ public class StpInterfaceImpl implements StpInterface {
     @Resource
     private PermissionMapper permissionMapper;
 
+
+    /**
+     * 返回一个账号所有的权限码集合
+     */
     @Override
     public List<String> getPermissionList(Object loginId, String loginType) {
         Long userId = Long.valueOf(loginId.toString());
@@ -30,6 +34,9 @@ public class StpInterfaceImpl implements StpInterface {
         return codes != null ? codes : Collections.emptyList();
     }
 
+    /**
+     * 返回一个账号所拥有的角色集合
+     */
     @Override
     public List<String> getRoleList(Object loginId, String loginType) {
         Long userId = Long.valueOf(loginId.toString());
